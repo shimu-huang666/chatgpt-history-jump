@@ -238,19 +238,6 @@
   font-size: 12px;
 }
 
-.cghj-flash {
-  animation: cghjFlash 1.2s ease;
-}
-
-@keyframes cghjFlash {
-  0% {
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
-  }
-  100% {
-    box-shadow: 0 0 0 18px rgba(59, 130, 246, 0);
-  }
-}
-
 @media (max-width: 960px) {
   #chatgpt-history-jump-root {
     right: 10px;

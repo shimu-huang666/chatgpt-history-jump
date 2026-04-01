@@ -13,7 +13,11 @@
   let activeQuestionId = null;
   let pageObserver = null;
   let activeIo = null;
-  let urlWatcher = null;
+  let lastQuestionSignature = "";
+  let lastRenderSignature = "";
+  let lastObservedSignature = "";
+  let lastKnownHref = location.href;
+  let urlWatcherInstalled = false;
   const expandedQuestionIds = new Set();
 
   function debounce(fn, delay = 300) {
@@ -200,6 +204,12 @@
     if (countEl) countEl.textContent = String(questionItems.length);
   }
 
+  function buildQuestionSignature(items) {
+    return items
+      .map((item) => `${item.id}|${item.text}|${item.imageCount}|${item.isLong ? 1 : 0}`)
+      .join("||");
+  }
+
   function scanQuestions() {
     const containers = findUserMessageContainers();
     const results = [];
@@ -230,13 +240,17 @@
       });
     });
 
+    const nextSignature = buildQuestionSignature(results);
+    const changed = nextSignature !== lastQuestionSignature;
     questionItems = results;
+    lastQuestionSignature = nextSignature;
 
     if (!questionItems.some((item) => item.id === activeQuestionId)) {
       activeQuestionId = questionItems[0]?.id || null;
     }
 
     updateCount();
+    return changed;
   }
 
   function getFilteredItems() {
@@ -251,30 +265,40 @@
     );
   }
 
-  function flashElement(el) {
-    if (!(el instanceof HTMLElement)) return;
-    el.classList.remove("cghj-flash");
-    void el.offsetWidth;
-    el.classList.add("cghj-flash");
-    setTimeout(() => {
-      el.classList.remove("cghj-flash");
-    }, 1200);
-  }
-
   function jumpToQuestion(item) {
     if (!item?.element) return;
-    item.element.scrollIntoView({ behavior: "smooth", block: "center" });
     activeQuestionId = item.id;
-    renderList();
-    flashElement(item.element);
+    updateActiveListState();
+    item.element.scrollIntoView({ behavior: "auto", block: "center" });
   }
 
-  function renderList() {
+  function updateActiveListState() {
+    const root = document.getElementById(EXT_ID);
+    if (!root) return;
+
+    root.querySelectorAll(".cghj-item").forEach((card) => {
+      if (!(card instanceof HTMLElement)) return;
+      card.classList.toggle("active", card.dataset.questionId === activeQuestionId);
+    });
+  }
+
+  function renderList(force = false) {
     const root = ensureRoot();
     const list = root.querySelector(`#${LIST_ID}`);
     if (!list) return;
 
     const items = getFilteredItems();
+    const keyword = root.querySelector(`#${SEARCH_ID}`)?.value?.trim().toLowerCase() || "";
+    const expandedState = [...expandedQuestionIds].sort().join("|");
+    const renderSignature = [
+      keyword,
+      activeQuestionId || "",
+      expandedState,
+      ...items.map((item) => item.id),
+    ].join("::");
+
+    if (!force && renderSignature === lastRenderSignature) return;
+    lastRenderSignature = renderSignature;
 
     if (!items.length) {
       list.innerHTML = `<div class="cghj-empty">没有匹配的问题</div>`;
@@ -288,11 +312,21 @@
       const isExpanded = expandedQuestionIds.has(item.id);
       const card = document.createElement("div");
       card.className = `cghj-item${item.id === activeQuestionId ? " active" : ""}`;
+      card.dataset.questionId = item.id;
 
       const mainBtn = document.createElement("button");
       mainBtn.type = "button";
       mainBtn.className = "cghj-main";
-      mainBtn.addEventListener("click", () => jumpToQuestion(item));
+      mainBtn.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        jumpToQuestion(item);
+      });
+      mainBtn.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        jumpToQuestion(item);
+      });
 
       const indexEl = document.createElement("span");
       indexEl.className = "cghj-index";
@@ -344,6 +378,9 @@
   }
 
   function rebuildIntersectionObserver() {
+    const observedSignature = questionItems.map((item) => item.id).join("|");
+    if (activeIo && observedSignature === lastObservedSignature) return;
+
     if (activeIo) {
       activeIo.disconnect();
       activeIo = null;
@@ -362,7 +399,7 @@
 
         if (id && id !== activeQuestionId) {
           activeQuestionId = id;
-          renderList();
+          updateActiveListState();
         }
       },
       {
@@ -376,14 +413,58 @@
         activeIo.observe(item.element);
       }
     });
+
+    lastObservedSignature = observedSignature;
   }
 
   const refreshAll = debounce(() => {
     ensureRoot();
-    scanQuestions();
+    const changed = scanQuestions();
+
+    if (changed) {
+      renderList(true);
+      rebuildIntersectionObserver();
+      return;
+    }
+
     renderList();
-    rebuildIntersectionObserver();
   }, 250);
+
+  function isRelevantMutationNode(node) {
+    if (!(node instanceof HTMLElement)) return false;
+
+    const root = document.getElementById(EXT_ID);
+    if (root?.contains(node)) return false;
+    if (node.closest(`#${EXT_ID}`)) return false;
+
+    return !!(
+      node.matches("[data-message-author-role]") ||
+      node.querySelector?.("[data-message-author-role]") ||
+      node.matches("main, article") ||
+      node.closest("main, article")
+    );
+  }
+
+  function shouldRefreshFromMutations(records) {
+    for (const record of records) {
+      const target = record.target;
+      const root = document.getElementById(EXT_ID);
+
+      if (target instanceof HTMLElement && root?.contains(target)) {
+        continue;
+      }
+
+      for (const node of record.addedNodes) {
+        if (isRelevantMutationNode(node)) return true;
+      }
+
+      for (const node of record.removedNodes) {
+        if (isRelevantMutationNode(node)) return true;
+      }
+    }
+
+    return false;
+  }
 
   function installPageObserver() {
     if (pageObserver) {
@@ -391,7 +472,8 @@
       pageObserver = null;
     }
 
-    pageObserver = new MutationObserver(() => {
+    pageObserver = new MutationObserver((records) => {
+      if (!shouldRefreshFromMutations(records)) return;
       refreshAll();
     });
 
@@ -402,18 +484,39 @@
     });
   }
 
-  function installUrlWatcher() {
-    if (urlWatcher) clearInterval(urlWatcher);
+  function handleUrlChange() {
+    if (location.href === lastKnownHref) return;
+    lastKnownHref = location.href;
+    lastQuestionSignature = "";
+    lastRenderSignature = "";
+    lastObservedSignature = "";
 
-    let lastHref = location.href;
-    urlWatcher = setInterval(() => {
-      if (location.href !== lastHref) {
-        lastHref = location.href;
-        setTimeout(() => {
-          refreshAll();
-        }, 300);
-      }
-    }, 800);
+    setTimeout(() => {
+      refreshAll();
+    }, 300);
+  }
+
+  function installUrlWatcher() {
+    if (urlWatcherInstalled) return;
+    urlWatcherInstalled = true;
+
+    const originalPushState = history.pushState;
+    const originalReplaceState = history.replaceState;
+
+    history.pushState = function (...args) {
+      const result = originalPushState.apply(this, args);
+      handleUrlChange();
+      return result;
+    };
+
+    history.replaceState = function (...args) {
+      const result = originalReplaceState.apply(this, args);
+      handleUrlChange();
+      return result;
+    };
+
+    window.addEventListener("popstate", handleUrlChange);
+    window.addEventListener("hashchange", handleUrlChange);
   }
 
   function waitForAppReady() {
