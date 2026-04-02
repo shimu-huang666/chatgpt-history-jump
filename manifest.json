@@ -4,6 +4,12 @@
   "short_name": "History Jump",
   "version": "0.2.4",
   "description": "在 ChatGPT 会话页面右侧生成历史问题目录，支持快速定位和跳转。",
+  "icons": {
+    "16": "icon_16.png",
+    "32": "icon_32.png",
+    "48": "icon_48.png",
+    "128": "icon_128.png"
+  },
   "permissions": [
     "storage"
   ],
@@ -27,6 +33,12 @@
     }
   ],
   "action": {
-    "default_title": "ChatGPT History Jump"
+    "default_title": "ChatGPT History Jump",
+    "default_icon": {
+      "16": "icon_16.png",
+      "32": "icon_32.png",
+      "48": "icon_48.png",
+      "128": "icon_128.png"
+    }
   }
 }
