@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ChatGPT History Jump",
   "short_name": "History Jump",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "在 ChatGPT 会话页面右侧生成历史问题目录，支持快速定位和跳转。",
   "icons": {
     "16": "icon_16.png",
