@@ -20,6 +20,17 @@
   let urlWatcherInstalled = false;
   const expandedQuestionIds = new Set();
 
+  function syncToggleState(root, collapsed) {
+    const toggleBtn = root?.querySelector(`#${TOGGLE_ID}`);
+    if (!toggleBtn) return;
+
+    root.classList.toggle("is-collapsed", collapsed);
+    toggleBtn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    toggleBtn.setAttribute("aria-label", collapsed ? "展开目录" : "收起目录");
+    toggleBtn.setAttribute("title", collapsed ? "展开目录" : "收起目录");
+    toggleBtn.textContent = collapsed ? "‹" : "›";
+  }
+
   function debounce(fn, delay = 300) {
     let timer = null;
     return function (...args) {
@@ -107,7 +118,6 @@
     root = document.createElement("div");
     root.id = EXT_ID;
     root.innerHTML = `
-      <button id="${TOGGLE_ID}" title="折叠/展开目录">≡</button>
       <aside id="${PANEL_ID}">
         <div class="cghj-header">
           <div class="cghj-title">历史问题</div>
@@ -120,6 +130,7 @@
         </div>
         <div id="${LIST_ID}"></div>
       </aside>
+      <button id="${TOGGLE_ID}" type="button" aria-expanded="true" aria-label="收起目录" title="收起目录">›</button>
     `;
 
     document.body.appendChild(root);
@@ -140,13 +151,18 @@
       const panel = root.querySelector(`#${PANEL_ID}`);
       if (!panel) return;
       panel.classList.toggle("collapsed");
-      await saveCollapsed(panel.classList.contains("collapsed"));
+      const collapsed = panel.classList.contains("collapsed");
+      syncToggleState(root, collapsed);
+      await saveCollapsed(collapsed);
     });
 
     loadCollapsed().then((collapsed) => {
       const panel = root.querySelector(`#${PANEL_ID}`);
       if (collapsed && panel) panel.classList.add("collapsed");
+      syncToggleState(root, !!collapsed);
     });
+
+    syncToggleState(root, false);
 
     return root;
   }
