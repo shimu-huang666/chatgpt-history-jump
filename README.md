@@ -12,6 +12,8 @@ For Chinese documentation, see [README_CN.md](./README_CN.md).
 - Highlights the prompt that is currently closest to the viewport
 - Supports image-containing prompts with visual badges
 - Collapses long prompts and lets you expand them on demand
+- Extracts the highest-level headings from each paired GPT reply using standalone title-line, typography, and nearby-content heuristics, with a fallback reply entry when no heading is detected
+- Adds a line-based heading pass so older replies with plain text section titles are still recognized
 - Remembers panel collapsed state per conversation
 - Watches page updates dynamically with DOM observers
 
@@ -47,8 +49,9 @@ After the extension is loaded:
 1. Open a ChatGPT conversation
 2. Look for the history panel on the right side
 3. Use the search box to filter previous prompts
-4. Click an item to jump to that message
-5. Collapse or expand the panel whenever needed
+4. Click an item to jump to that message near the top of the viewport
+5. Expand reply headings to preview sections and jump to the selected heading
+6. Collapse or expand the panel whenever needed
 
 ## How It Works
 
@@ -75,6 +78,8 @@ The extension is implemented as a Manifest V3 content script:
 
 There is no build step required right now. Edit the source files directly and reload the extension from the browser extensions page to test changes.
 
+When changing behavior or UI, also update the README files and bump the extension version in `manifest.json`.
+
 ## Limitations
 
 - The extension depends on the current ChatGPT DOM structure
@@ -84,7 +89,7 @@ There is no build step required right now. Edit the source files directly and re
 
 ## Version
 
-Current version: `v0.2.6`
+Current version: `v0.2.24`
 
 ## License
 
