@@ -84,6 +84,13 @@
       .trim();
   }
 
+  function getElementText(el) {
+    if (!(el instanceof HTMLElement)) return "";
+    const text = el.innerText;
+    if (text && text.trim()) return text;
+    return el.textContent || "";
+  }
+
   function normalizeQuestionText(text) {
     return normalizeText(String(text || "").replace(/^You said:\s*/i, ""));
   }
@@ -335,7 +342,7 @@
         .map((node) => node.textContent || "")
         .join(" ")
     );
-    const text = normalizeText(el.innerText);
+    const text = normalizeText(getElementText(el));
 
     return {
       maxFontSize: Math.max(...metrics.map((item) => item.fontSize)),
@@ -440,7 +447,7 @@
       .filter((el) => el instanceof HTMLElement)
       .map((el) => ({
         element: el,
-        text: normalizeText(el.innerText),
+        text: normalizeText(getElementText(el)),
       }))
       .filter((item) =>
         item.text &&
@@ -465,7 +472,7 @@
     return [...rootEl.querySelectorAll("h1, h2, h3, h4, h5, h6")]
       .filter((el) => el instanceof HTMLElement)
       .map((el) => {
-        const text = normalizeText(el.innerText);
+        const text = normalizeText(getElementText(el));
         if (!isHeadingLikeText(text)) return null;
 
         const metrics = getHeadingMetrics(el, baseFontSize);
@@ -498,23 +505,25 @@
         return true;
       })
       .map((el) => {
-        const fullText = normalizeText(el.innerText);
-        const text = getPrimaryHeadingText(el.innerText);
+        const elText = getElementText(el);
+        const fullText = normalizeText(elText);
+        const text = getPrimaryHeadingText(elText);
         if (!isHeadingLikeText(text)) return null;
 
-        const lines = getTextLines(el.innerText);
+        const lines = getTextLines(elText);
         if (lines.length > 3) return null;
 
         const metrics = getHeadingMetrics(el, baseFontSize);
         const textShape = getTextShapeSignals(text);
         const looksProminent =
-          metrics.maxFontSize >= baseFontSize * 1.1 ||
-          metrics.maxFontWeight >= 600 ||
-          metrics.strongCoverage >= 0.45;
+          metrics.maxFontSize >= baseFontSize * 1.05 ||
+          metrics.maxFontWeight >= 550 ||
+          metrics.strongCoverage >= 0.25;
         const contextualBoost = getContextualHeadingBoost(el);
         const hasNestedBlocks = hasDistinctNestedBlocks(el, text, candidateSelectors);
         const hasInlineEmphasis = !!el.querySelector("strong, b");
-        const titleLineIsStandalone = fullText === text || lines[0] === text;
+        const firstLineIsHeadingLike = lines[0] && isHeadingLikeText(lines[0]) && lines[0].length <= 64;
+        const titleLineIsStandalone = fullText === text || lines[0] === text || firstLineIsHeadingLike;
         const canBePlainHeading =
           textShape.isNumberedSection ||
           textShape.endsWithColon ||
@@ -559,8 +568,8 @@
     return [...rootEl.querySelectorAll(candidateSelectors)]
       .filter((el) => el instanceof HTMLElement && el !== rootEl)
       .flatMap((el) => {
-        const lines = getTextLines(el.innerText);
-        if (lines.length < 2 || lines.length > 8) return [];
+        const lines = getTextLines(getElementText(el));
+        if (lines.length < 1 || lines.length > 8) return [];
 
         const contextualBoost = getContextualHeadingBoost(el);
 
@@ -573,7 +582,8 @@
             textShape.isNumberedSection ||
             textShape.endsWithColon ||
             textShape.isQuestionHeading ||
-            (textShape.isShortLabel && contextualBoost >= 12);
+            textShape.isShortLabel ||
+            (text.length <= 32 && contextualBoost >= 8);
 
           if (!shouldConsider) return null;
           if (textShape.isLikelySentence && !textShape.isNumberedSection && !textShape.endsWithColon) {
@@ -583,15 +593,15 @@
           const anchorEl = findBestHeadingElementForText(el, text);
           const metrics = getHeadingMetrics(anchorEl, baseFontSize);
           const looksProminent =
-            metrics.maxFontSize >= baseFontSize * 1.02 ||
-            metrics.maxFontWeight >= 560 ||
-            metrics.strongCoverage >= 0.35 ||
+            metrics.maxFontSize >= baseFontSize * 1.0 ||
+            metrics.maxFontWeight >= 500 ||
+            metrics.strongCoverage >= 0.2 ||
             textShape.isNumberedSection ||
-            (textShape.endsWithColon && contextualBoost >= 12);
+            (textShape.endsWithColon && contextualBoost >= 8);
 
           if (!looksProminent) return null;
 
-          const key = `${text}::${anchorEl.dataset.cghjHeadingId || anchorEl.innerText.length}`;
+          const key = `${text}::${anchorEl.dataset.cghjHeadingId || getElementText(anchorEl).length}`;
           if (seenKeys.has(key)) return null;
           seenKeys.add(key);
 
