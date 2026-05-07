@@ -1,7 +1,7 @@
 #chatgpt-history-jump-root {
   --cghj-bg: #ffffff;
   --cghj-panel-border: rgba(15, 23, 42, 0.08);
-  --cghj-shadow: 0 18px 50px rgba(15, 23, 42, 0.12);
+  --cghj-shadow: 0 8px 32px rgba(15, 23, 42, 0.1);
   --cghj-text: #111827;
   --cghj-muted: #6b7280;
   --cghj-accent: #2563eb;
@@ -20,29 +20,29 @@
 }
 
 #chatgpt-history-jump-toggle {
-  width: 24px;
-  height: 72px;
+  width: 26px;
+  height: 68px;
   margin-top: 14px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(15, 23, 42, 0.06);
   border-radius: 999px;
   cursor: pointer;
-  background: rgba(255, 255, 255, 0.92);
-  color: #4b5563;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
-  font-size: 15px;
+  background: rgba(255, 255, 255, 0.95);
+  color: #6b7280;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+  font-size: 14px;
   line-height: 1;
-  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, color 0.18s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease, color 0.2s ease;
 }
 
 #chatgpt-history-jump-toggle:hover {
   transform: translateY(-1px);
   background: #ffffff;
   color: var(--cghj-accent);
-  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.1);
 }
 
 #chatgpt-history-jump-panel {
-  width: 292px;
+  width: 288px;
   max-height: calc(100vh - 90px);
   overflow: hidden;
   display: flex;
@@ -50,7 +50,7 @@
   background: var(--cghj-bg);
   color: var(--cghj-text);
   border: 1px solid var(--cghj-panel-border);
-  border-radius: 20px;
+  border-radius: 16px;
   box-shadow: var(--cghj-shadow);
 }
 
@@ -59,19 +59,19 @@
 }
 
 #chatgpt-history-jump-root.is-collapsed #chatgpt-history-jump-toggle {
-  width: 30px;
-  height: 56px;
+  width: 28px;
+  height: 52px;
   margin-top: 18px;
-  border-radius: 16px 0 0 16px;
+  border-radius: 12px 0 0 12px;
   border-right: none;
-  background: rgba(255, 255, 255, 0.96);
+  background: rgba(255, 255, 255, 0.98);
 }
 
 .cghj-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px 10px;
+  padding: 14px 16px 12px;
 }
 
 .cghj-title {
@@ -82,42 +82,45 @@
 
 .cghj-refresh {
   border: none;
-  background: #ffffff;
+  background: transparent;
   cursor: pointer;
   font-size: 15px;
   color: var(--cghj-muted);
-  width: 30px;
-  height: 30px;
-  border-radius: 10px;
-  transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  transition: background 0.2s ease, color 0.2s ease;
 }
 
 .cghj-refresh:hover {
-  background: #eff6ff;
+  background: #f0f7ff;
   color: var(--cghj-accent);
-  transform: rotate(20deg);
 }
 
 #chatgpt-history-jump-search {
   margin: 0 16px;
-  padding: 11px 13px;
-  border-radius: 12px;
-  border: 1px solid rgba(15, 23, 42, 0.12);
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
   outline: none;
   font-size: 13px;
   color: var(--cghj-text);
   background: #ffffff;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+#chatgpt-history-jump-search::placeholder {
+  color: #9ca3af;
 }
 
 #chatgpt-history-jump-search:focus {
-  border-color: rgba(199, 107, 45, 0.5);
-  box-shadow: 0 0 0 3px rgba(199, 107, 45, 0.1);
-  background: rgba(255, 255, 255, 0.96);
+  border-color: rgba(37, 99, 235, 0.4);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
+  background: #ffffff;
 }
 
 .cghj-meta {
-  padding: 8px 16px 10px;
+  padding: 6px 16px 10px;
   font-size: 11px;
   color: var(--cghj-muted);
 }
@@ -140,39 +143,39 @@
 }
 
 .cghj-row:hover {
-  transform: translateY(-1px);
+  transform: translateY(-0.5px);
 }
 
 .cghj-item.active {
-  filter: saturate(1.03);
+  /* Active state styling handled by .cghj-main */
 }
 
 .cghj-main {
   width: 100%;
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(15, 23, 42, 0.06);
   text-align: left;
   display: flex;
   gap: 10px;
   align-items: flex-start;
-  padding: 10px 11px;
-  border-radius: 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
   cursor: pointer;
   background: var(--cghj-card);
   color: inherit;
-  transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+  transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
 }
 
 .cghj-main:hover {
   background: var(--cghj-card-hover);
-  border-color: rgba(37, 99, 235, 0.16);
-  box-shadow: 0 12px 22px rgba(15, 23, 42, 0.08);
+  border-color: rgba(37, 99, 235, 0.12);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
 }
 
 .cghj-item.active .cghj-main {
   background: var(--cghj-card-active);
-  border-color: rgba(37, 99, 235, 0.18);
-  box-shadow: 0 14px 26px rgba(37, 99, 235, 0.08);
+  border-color: rgba(37, 99, 235, 0.2);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.06);
 }
 
 .cghj-index {
@@ -182,13 +185,13 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, #1f2937, #111827);
-  color: #ffffff;
+  background: var(--cghj-accent-soft);
+  color: var(--cghj-accent);
   font-size: 11px;
+  font-weight: 600;
   line-height: 1;
   margin-top: 1px;
   flex-shrink: 0;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
 .cghj-content {
@@ -200,8 +203,8 @@
 }
 
 .cghj-text {
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: 12.5px;
+  line-height: 1.5;
   word-break: break-word;
   color: var(--cghj-text);
   display: -webkit-box;
@@ -217,13 +220,12 @@
 
 .cghj-badge {
   align-self: flex-start;
-  padding: 3px 8px;
+  padding: 2px 8px;
   border-radius: 999px;
   background: var(--cghj-accent-soft);
   color: var(--cghj-accent);
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.01em;
+  font-weight: 600;
 }
 
 .cghj-outline-summary {
@@ -232,40 +234,40 @@
 }
 
 .cghj-tool {
-  width: 34px;
+  width: 32px;
   flex-shrink: 0;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 10px;
   background: #ffffff;
   color: var(--cghj-muted);
   cursor: pointer;
-  font-size: 15px;
-  transition: transform 0.18s ease, color 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+  font-size: 14px;
+  transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
 }
 
 .cghj-tool:hover {
   color: var(--cghj-accent);
-  background: #eff6ff;
-  border-color: rgba(37, 99, 235, 0.16);
+  background: #f0f7ff;
+  border-color: rgba(37, 99, 235, 0.12);
 }
 
 .cghj-tool.expanded {
   color: var(--cghj-accent);
-  transform: translateY(-1px);
+  background: #f0f7ff;
 }
 
 .cghj-outline-toggle {
   background: #f8fafc;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .cghj-heading-panel {
   margin-top: 6px;
-  margin-left: 36px;
+  margin-left: 34px;
   padding: 10px;
-  border: 1px solid rgba(37, 99, 235, 0.12);
-  border-radius: 14px;
-  background: rgba(248, 250, 252, 0.92);
+  border: 1px solid rgba(37, 99, 235, 0.08);
+  border-radius: 10px;
+  background: #f8fafc;
 }
 
 .cghj-heading-meta {
@@ -285,20 +287,19 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 10px;
   padding: 8px 10px;
   background: #ffffff;
   color: var(--cghj-text);
   cursor: pointer;
   text-align: left;
-  transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+  transition: background 0.2s ease, border-color 0.2s ease;
 }
 
 .cghj-heading-link:hover {
-  transform: translateY(-1px);
-  background: #f8fbff;
-  border-color: rgba(37, 99, 235, 0.18);
+  background: #f8fafc;
+  border-color: rgba(37, 99, 235, 0.12);
 }
 
 .cghj-heading-text {

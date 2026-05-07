@@ -89,7 +89,7 @@ When changing behavior or UI, also update the README files and bump the extensio
 
 ## Version
 
-Current version: `v0.2.24`
+Current version: `v0.2.25`
 
 ## License
 
