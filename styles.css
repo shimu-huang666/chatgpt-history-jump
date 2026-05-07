@@ -325,6 +325,109 @@
   font-size: 12px;
 }
 
+/* Dark mode */
+@media (prefers-color-scheme: dark) {
+  #chatgpt-history-jump-root {
+    --cghj-bg: #1e1e2e;
+    --cghj-panel-border: rgba(255, 255, 255, 0.08);
+    --cghj-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    --cghj-text: #e2e8f0;
+    --cghj-muted: #94a3b8;
+    --cghj-accent: #60a5fa;
+    --cghj-accent-soft: rgba(96, 165, 250, 0.15);
+    --cghj-card: #2a2a3c;
+    --cghj-card-hover: #32324a;
+    --cghj-card-active: #1e3a5f;
+  }
+
+  #chatgpt-history-jump-toggle {
+    border-color: rgba(255, 255, 255, 0.08);
+    background: rgba(30, 30, 46, 0.95);
+    color: #94a3b8;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  }
+
+  #chatgpt-history-jump-toggle:hover {
+    background: #2a2a3c;
+    color: #60a5fa;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  }
+
+  #chatgpt-history-jump-root.is-collapsed #chatgpt-history-jump-toggle {
+    background: rgba(30, 30, 46, 0.98);
+  }
+
+  #chatgpt-history-jump-search {
+    border-color: rgba(255, 255, 255, 0.1);
+    background: #2a2a3c;
+  }
+
+  #chatgpt-history-jump-search::placeholder {
+    color: #64748b;
+  }
+
+  #chatgpt-history-jump-search:focus {
+    border-color: rgba(96, 165, 250, 0.4);
+    box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.1);
+    background: #2a2a3c;
+  }
+
+  .cghj-main {
+    border-color: rgba(255, 255, 255, 0.06);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  }
+
+  .cghj-main:hover {
+    border-color: rgba(96, 165, 250, 0.2);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  }
+
+  .cghj-item.active .cghj-main {
+    border-color: rgba(96, 165, 250, 0.3);
+    box-shadow: 0 2px 8px rgba(96, 165, 250, 0.15);
+  }
+
+  .cghj-refresh:hover {
+    background: rgba(96, 165, 250, 0.1);
+    color: #60a5fa;
+  }
+
+  .cghj-tool {
+    border-color: rgba(255, 255, 255, 0.06);
+    background: #2a2a3c;
+  }
+
+  .cghj-tool:hover {
+    background: rgba(96, 165, 250, 0.1);
+    border-color: rgba(96, 165, 250, 0.2);
+    color: #60a5fa;
+  }
+
+  .cghj-tool.expanded {
+    background: rgba(96, 165, 250, 0.1);
+    color: #60a5fa;
+  }
+
+  .cghj-outline-toggle {
+    background: #32324a;
+  }
+
+  .cghj-heading-panel {
+    border-color: rgba(96, 165, 250, 0.12);
+    background: #2a2a3c;
+  }
+
+  .cghj-heading-link {
+    border-color: rgba(255, 255, 255, 0.06);
+    background: #32324a;
+  }
+
+  .cghj-heading-link:hover {
+    background: #3a3a52;
+    border-color: rgba(96, 165, 250, 0.2);
+  }
+}
+
 @media (max-width: 960px) {
   #chatgpt-history-jump-root {
     right: 10px;
