@@ -42,7 +42,7 @@
 }
 
 #chatgpt-history-jump-panel {
-  width: 288px;
+  width: 360px;
   max-height: calc(100vh - 90px);
   overflow: hidden;
   display: flex;
@@ -337,7 +337,7 @@
   }
 
   #chatgpt-history-jump-panel {
-    width: min(272px, calc(100vw - 58px));
+    width: min(340px, calc(100vw - 58px));
   }
 
   .cghj-heading-panel {
