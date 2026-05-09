@@ -158,10 +158,11 @@
 
 ## 版本说明
 
-当前版本：`0.2.42`
+当前版本：`0.2.43`
 
 ### 更新日志
 
+- **0.2.43** — 修复 scanQuestions 合并时丢失 API cacheKey 导致跳转失败的问题；添加比例滚动调试日志；优化 apiTotal 计算
 - **0.2.42** — 修复 API 加载后重复条目问题（基于文本的 API/DOM 缓存去重），API 加载项使用比例滚动快速跳转
 - **0.2.41** — 修复 GPT URL 格式 (`/g/g-xxx/c/{id}`) 的 conversationId 提取
 - **0.2.40** — 记录实际 pathname 以调试 conversationId 提取
