@@ -158,10 +158,11 @@
 
 ## 版本说明
 
-当前版本：`0.2.39`
+当前版本：`0.2.40`
 
 ### 更新日志
 
+- **0.2.40** — 记录实际 pathname 以调试 conversationId 提取
 - **0.2.39** — 添加 API 详细诊断日志，追踪 fetch 失败原因
 - **0.2.38** — 添加 Backend API 数据层，通过 `/backend-api/conversation` 加载完整对话历史，消除深度扫描依赖
 - **0.2.37** — 自动深度扫描、优化扫描参数（DEEP_SCAN_DELAY 350ms、MAX_STEPS 350）
