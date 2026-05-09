@@ -1363,20 +1363,43 @@
         const targetTop = Math.floor(ratio * maxTop);
         console.log(`[CGHJ] proportional scroll: apiIndex=${item.apiIndex}/${item.apiTotal} ratio=${ratio.toFixed(2)} target=${targetTop}/${maxTop}`);
         setScrollTop(scroller, Math.min(targetTop, maxTop));
-        await sleep(600);
-        runRefreshAll();
 
-        if (scanKey !== getConversationKey()) return null;
-        const latest = getItemByCacheKey(item.cacheKey);
-        if (isItemLoaded(latest)) {
-          console.log("[CGHJ] proportional scroll: item found after scroll");
-          activeQuestionId = latest.id;
-          jumpToElement(latest.element);
-          return;
+        // Wait for virtual scroller to render, polling up to 3s
+        for (let i = 0; i < 10; i++) {
+          await sleep(300);
+          if (scanKey !== getConversationKey()) return null;
+          runRefreshAll();
+          const latest = getItemByCacheKey(item.cacheKey);
+          if (i === 0) {
+            console.log(`[CGHJ] poll #${i}: cacheKey=${item.cacheKey} inMap=${!!latest} isLoaded=${isItemLoaded(latest)} mapSize=${seenQuestionMap.size}`);
+          }
+          if (isItemLoaded(latest)) {
+            console.log(`[CGHJ] item found after ${(i + 1) * 300}ms wait`);
+            activeQuestionId = latest.id;
+            jumpToElement(latest.element);
+            return;
+          }
         }
-        console.log("[CGHJ] proportional scroll: item not found, falling back to step search");
-      } else {
-        console.log(`[CGHJ] no apiIndex/apiTotal: apiIndex=${item.apiIndex} apiTotal=${item.apiTotal}`);
+
+        // If still not found, try nudging scroll slightly (virtual scroller may need position change)
+        const nudgeOffsets = [-200, 200, -500, 500];
+        for (const offset of nudgeOffsets) {
+          setScrollTop(scroller, Math.min(Math.max(0, targetTop + offset), maxTop));
+          await sleep(400);
+          if (scanKey !== getConversationKey()) return null;
+          runRefreshAll();
+          const latest = getItemByCacheKey(item.cacheKey);
+          if (isItemLoaded(latest)) {
+            console.log(`[CGHJ] item found with nudge offset ${offset}`);
+            activeQuestionId = latest.id;
+            jumpToElement(latest.element);
+            return;
+          }
+        }
+
+        // Restore to target position
+        setScrollTop(scroller, Math.min(targetTop, maxTop));
+        console.log("[CGHJ] proportional scroll + nudges failed, falling back to step search");
       }
 
       // Fallback: step-by-step search from current position
@@ -1962,13 +1985,19 @@
       nextQuestionIndex = 1;
 
       const batchKeys = [];
-      const apiUserTotal = result.messages.filter((m) => m.role === "user").length;
+      const apiUserMessages = result.messages.filter((m) => m.role === "user");
+      const apiUserTotal = apiUserMessages.length;
+      let filteredOut = 0;
 
       result.messages.forEach((msg) => {
         if (msg.role !== "user") return;
 
         const text = normalizeQuestionText(msg.text);
-        if (!shouldKeepAsQuestion(text, 0)) return;
+        if (!shouldKeepAsQuestion(text, 0)) {
+          filteredOut++;
+          console.log(`[CGHJ] filtered out user msg: "${text.slice(0, 60)}..." len=${text.length}`);
+          return;
+        }
 
         const textKey = normalizeText(text).toLowerCase();
         const domItem = domItemsByText.get(textKey);
@@ -2000,6 +2029,8 @@
           apiTotal: apiUserTotal,
         });
       });
+
+      console.log(`[CGHJ] API load complete: ${apiUserTotal} user messages from API, ${filteredOut} filtered, ${seenQuestionMap.size} in map`);
 
       renumberQuestionItems();
 

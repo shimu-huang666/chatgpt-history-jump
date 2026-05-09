@@ -131,10 +131,11 @@ When changing behavior or UI, also update the README files and bump the extensio
 
 ## Version
 
-Current version: `v0.2.43`
+Current version: `v0.2.44`
 
 ### Changelog
 
+- **0.2.44** — Poll for virtual scroller rendering after proportional scroll (up to 3s), add scroll nudges to trigger DOM rendering, add map diagnostic logging
 - **0.2.43** — Preserve API cacheKey through scanQuestions merge so locate jump works; add proportional scroll debug logging; optimize apiTotal computation
 - **0.2.42** — Fix duplicate entries after API load (text-based dedup between API and DOM cache keys), fast proportional scroll jump for API-loaded items
 - **0.2.41** — Fix conversationId extraction for GPT URLs (`/g/g-xxx/c/{id}`)
