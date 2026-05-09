@@ -7,6 +7,7 @@ Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-s
 ## Project-Specific Rule
 
 - Every code change must also update the relevant README documentation and bump the extension version number.
+- Every version bump must include a changelog entry documenting what changed in that version.
 
 ## 1. Think Before Coding
 
