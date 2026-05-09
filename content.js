@@ -1113,16 +1113,27 @@
       if (!shouldKeepAsQuestion(text, imageCount)) return;
 
       const cacheKey = getQuestionCacheKey(userEl, text, imageCount);
-      batchKeys.push(cacheKey);
       const textKey = normalizeText(text).toLowerCase();
       const previous = seenQuestionMap.get(cacheKey) || existingByText.get(textKey);
+
+      // If an API-loaded entry matched by text with a different cache key,
+      // update it in-place to preserve the original cacheKey reference
+      // (locateAndJumpToQuestion holds a reference to the old cacheKey)
+      if (previous && previous.cacheKey !== cacheKey) {
+        previous.element = userEl;
+        previous.replyElement = replyEl instanceof HTMLElement ? replyEl : null;
+        previous.isLoaded = true;
+        previous.imageCount = imageCount;
+        previous.hasImage = imageCount > 0;
+        previous.hasReplyHeadings = previous.replyElement instanceof HTMLElement || previous.replyHeadings.length > 0;
+        batchKeys.push(previous.cacheKey);
+        assignQuestionAnchor(userEl, previous.index - 1, previous.id);
+        return;
+      }
+
+      batchKeys.push(cacheKey);
       const index = previous?.index || nextQuestionIndex;
       if (!previous) nextQuestionIndex += 1;
-
-      // If an API-loaded entry exists with different cache key, remove it to avoid duplicate
-      if (previous && previous.cacheKey !== cacheKey && seenQuestionMap.has(previous.cacheKey)) {
-        seenQuestionMap.delete(previous.cacheKey);
-      }
 
       const id = assignQuestionAnchor(userEl, index - 1, previous?.id);
       const isLong = text.length > LONG_TEXT_THRESHOLD;
@@ -1350,6 +1361,7 @@
         const maxTop = getMaxScrollTop(scroller);
         const ratio = item.apiIndex / item.apiTotal;
         const targetTop = Math.floor(ratio * maxTop);
+        console.log(`[CGHJ] proportional scroll: apiIndex=${item.apiIndex}/${item.apiTotal} ratio=${ratio.toFixed(2)} target=${targetTop}/${maxTop}`);
         setScrollTop(scroller, Math.min(targetTop, maxTop));
         await sleep(600);
         runRefreshAll();
@@ -1357,10 +1369,14 @@
         if (scanKey !== getConversationKey()) return null;
         const latest = getItemByCacheKey(item.cacheKey);
         if (isItemLoaded(latest)) {
+          console.log("[CGHJ] proportional scroll: item found after scroll");
           activeQuestionId = latest.id;
           jumpToElement(latest.element);
           return;
         }
+        console.log("[CGHJ] proportional scroll: item not found, falling back to step search");
+      } else {
+        console.log(`[CGHJ] no apiIndex/apiTotal: apiIndex=${item.apiIndex} apiTotal=${item.apiTotal}`);
       }
 
       // Fallback: step-by-step search from current position
@@ -1946,6 +1962,7 @@
       nextQuestionIndex = 1;
 
       const batchKeys = [];
+      const apiUserTotal = result.messages.filter((m) => m.role === "user").length;
 
       result.messages.forEach((msg) => {
         if (msg.role !== "user") return;
@@ -1980,7 +1997,7 @@
           isLoaded: !!domItem,
           source: domItem ? "merged" : "api",
           apiIndex: index - 1,
-          apiTotal: result.messages.filter((m) => m.role === "user").length,
+          apiTotal: apiUserTotal,
         });
       });
 
