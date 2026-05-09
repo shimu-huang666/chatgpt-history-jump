@@ -1899,6 +1899,15 @@
       if (!result?.messages?.length) return false;
 
       const conversationKey = activeConversationKey || getConversationKey();
+
+      // Build a text→existing-item index for merging with DOM data
+      const existingByText = new Map();
+      seenQuestionMap.forEach((item) => {
+        if (item.conversationKey === conversationKey && item.text) {
+          existingByText.set(normalizeText(item.text).toLowerCase(), item);
+        }
+      });
+
       const batchKeys = [];
 
       result.messages.forEach((msg) => {
@@ -1906,6 +1915,15 @@
 
         const text = normalizeQuestionText(msg.text);
         if (!shouldKeepAsQuestion(text, 0)) return;
+
+        // Check if DOM scan already found this message
+        const existingDomItem = existingByText.get(normalizeText(text).toLowerCase());
+        if (existingDomItem?.element instanceof HTMLElement && existingDomItem.element.isConnected) {
+          // DOM item exists and is loaded — keep it, just update source
+          existingDomItem.source = "merged";
+          batchKeys.push(existingDomItem.cacheKey);
+          return;
+        }
 
         const cacheKey = `${conversationKey}::api:${msg.id}`;
         batchKeys.push(cacheKey);

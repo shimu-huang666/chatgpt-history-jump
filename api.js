@@ -18,8 +18,6 @@
     }
 
     const data = await res.json();
-    console.log("[CGHJ-API] session response:", JSON.stringify(data).slice(0, 500));
-
     cachedToken = data.accessToken || null;
     tokenExpiresAt = data.expires
       ? new Date(data.expires).getTime() - 60000
@@ -46,10 +44,7 @@
       return null;
     }
 
-    const data = await res.json();
-    console.log("[CGHJ-API] conversation keys:", Object.keys(data));
-    console.log("[CGHJ-API] mapping sample:", JSON.stringify(data.mapping).slice(0, 1000));
-    return data;
+    return await res.json();
   }
 
   function getConversationId() {
@@ -57,14 +52,40 @@
     return match ? match[1] : null;
   }
 
+  function getActiveNodePath(mapping, currentNodeId) {
+    const path = [];
+    let nodeId = currentNodeId;
+
+    while (nodeId && mapping[nodeId]) {
+      path.unshift(nodeId);
+      nodeId = mapping[nodeId].parent || null;
+    }
+
+    return path;
+  }
+
   function parseConversationMessages(apiResponse) {
     if (!apiResponse?.mapping) return [];
 
-    const messages = [];
     const mapping = apiResponse.mapping;
+    const currentNodeId = apiResponse.current_node;
+    const activePath = currentNodeId
+      ? new Set(getActiveNodePath(mapping, currentNodeId))
+      : null;
+
+    const messages = [];
+    let totalNodes = 0;
+    let skippedNodes = 0;
 
     for (const nodeId of Object.keys(mapping)) {
+      totalNodes++;
       const node = mapping[nodeId];
+
+      if (activePath && !activePath.has(nodeId)) {
+        skippedNodes++;
+        continue;
+      }
+
       const msg = node?.message;
       if (!msg?.author?.role || !msg?.content) continue;
 
@@ -90,7 +111,9 @@
     }
 
     messages.sort((a, b) => a.createTime - b.createTime);
-    console.log("[CGHJ-API] parsed messages:", messages.length);
+    console.log(
+      `[CGHJ-API] parsed: ${totalNodes} nodes, ${skippedNodes} off-path skipped, ${messages.length} messages (${messages.filter((m) => m.role === "user").length} user)`
+    );
     return messages;
   }
 
