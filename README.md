@@ -131,10 +131,11 @@ When changing behavior or UI, also update the README files and bump the extensio
 
 ## Version
 
-Current version: `v0.2.40`
+Current version: `v0.2.41`
 
 ### Changelog
 
+- **0.2.41** — Fix conversationId extraction for GPT URLs (`/g/g-xxx/c/{id}`)
 - **0.2.40** — Log actual pathname to debug conversationId extraction
 - **0.2.39** — Add detailed API diagnostic logging to trace fetch failures
 - **0.2.38** — Add Backend API data layer, load full conversation history via `/backend-api/conversation`, remove deep scan dependency

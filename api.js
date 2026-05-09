@@ -49,9 +49,8 @@
   }
 
   function getConversationId() {
-    console.log("[CGHJ-API] pathname:", location.pathname);
-    const match = location.pathname.match(/^\/c\/([^/?#]+)/);
-    console.log("[CGHJ-API] conversationId match:", match ? match[1] : null);
+    const match = location.pathname.match(/\/c\/([^/?#]+)/);
+    console.log("[CGHJ-API] conversationId:", match ? match[1] : null);
     return match ? match[1] : null;
   }
 
