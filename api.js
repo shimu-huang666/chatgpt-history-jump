@@ -40,10 +40,11 @@
     });
 
     if (!res.ok) {
-      console.warn("[CGHJ-API] fetchConversation failed:", res.status);
+      console.warn("[CGHJ-API] fetchConversation failed:", res.status, res.statusText);
       return null;
     }
 
+    console.log("[CGHJ-API] fetchConversation success");
     return await res.json();
   }
 
@@ -119,9 +120,11 @@
 
   async function loadFullConversation() {
     const conversationId = getConversationId();
+    console.log("[CGHJ-API] conversationId:", conversationId);
     if (!conversationId) return null;
 
     const apiResponse = await fetchConversation(conversationId);
+    console.log("[CGHJ-API] apiResponse:", apiResponse ? "ok" : "null");
     if (!apiResponse) return null;
 
     const messages = parseConversationMessages(apiResponse);
