@@ -1095,6 +1095,14 @@
     markCachedQuestionsUnloaded();
     const batchKeys = [];
 
+    // Build text\u2192existing item index for dedup with API-loaded items
+    const existingByText = new Map();
+    seenQuestionMap.forEach((item) => {
+      if (item.conversationKey === activeConversationKey && item.text) {
+        existingByText.set(normalizeText(item.text).toLowerCase(), item);
+      }
+    });
+
     pairs.forEach(({ userEl, replyEl }, idx) => {
       if (!(userEl instanceof HTMLElement)) return;
 
@@ -1106,9 +1114,15 @@
 
       const cacheKey = getQuestionCacheKey(userEl, text, imageCount);
       batchKeys.push(cacheKey);
-      const previous = seenQuestionMap.get(cacheKey);
+      const textKey = normalizeText(text).toLowerCase();
+      const previous = seenQuestionMap.get(cacheKey) || existingByText.get(textKey);
       const index = previous?.index || nextQuestionIndex;
       if (!previous) nextQuestionIndex += 1;
+
+      // If an API-loaded entry exists with different cache key, remove it to avoid duplicate
+      if (previous && previous.cacheKey !== cacheKey && seenQuestionMap.has(previous.cacheKey)) {
+        seenQuestionMap.delete(previous.cacheKey);
+      }
 
       const id = assignQuestionAnchor(userEl, index - 1, previous?.id);
       const isLong = text.length > LONG_TEXT_THRESHOLD;
@@ -1331,6 +1345,25 @@
     const scanKey = activeConversationKey;
 
     try {
+      // If we have API positional data, jump directly to proportional position
+      if (typeof item.apiIndex === "number" && item.apiTotal > 0) {
+        const maxTop = getMaxScrollTop(scroller);
+        const ratio = item.apiIndex / item.apiTotal;
+        const targetTop = Math.floor(ratio * maxTop);
+        setScrollTop(scroller, Math.min(targetTop, maxTop));
+        await sleep(600);
+        runRefreshAll();
+
+        if (scanKey !== getConversationKey()) return null;
+        const latest = getItemByCacheKey(item.cacheKey);
+        if (isItemLoaded(latest)) {
+          activeQuestionId = latest.id;
+          jumpToElement(latest.element);
+          return;
+        }
+      }
+
+      // Fallback: step-by-step search from current position
       const totalCount = questionItems.length;
       const isLowerHalf = item.index <= Math.ceil(totalCount / 2);
       const firstDir = isLowerHalf ? -1 : 1;
@@ -1891,7 +1924,6 @@
   }
 
   async function loadConversationFromApi() {
-    console.log("[CGHJ] loadConversationFromApi called, __cghjApi:", !!window.__cghjApi);
     if (!window.__cghjApi) return false;
     if (!ensureConversationState()) return false;
 
@@ -1901,13 +1933,17 @@
 
       const conversationKey = activeConversationKey || getConversationKey();
 
-      // Build a text→existing-item index for merging with DOM data
-      const existingByText = new Map();
+      // Build text→existing DOM item index for preserving element references
+      const domItemsByText = new Map();
       seenQuestionMap.forEach((item) => {
-        if (item.conversationKey === conversationKey && item.text) {
-          existingByText.set(normalizeText(item.text).toLowerCase(), item);
+        if (item.conversationKey === conversationKey && item.text && item.element instanceof HTMLElement && item.element.isConnected) {
+          domItemsByText.set(normalizeText(item.text).toLowerCase(), item);
         }
       });
+
+      // Clear and rebuild from API
+      seenQuestionMap.clear();
+      nextQuestionIndex = 1;
 
       const batchKeys = [];
 
@@ -1917,23 +1953,14 @@
         const text = normalizeQuestionText(msg.text);
         if (!shouldKeepAsQuestion(text, 0)) return;
 
-        // Check if DOM scan already found this message
-        const existingDomItem = existingByText.get(normalizeText(text).toLowerCase());
-        if (existingDomItem?.element instanceof HTMLElement && existingDomItem.element.isConnected) {
-          // DOM item exists and is loaded — keep it, just update source
-          existingDomItem.source = "merged";
-          batchKeys.push(existingDomItem.cacheKey);
-          return;
-        }
-
-        const cacheKey = `${conversationKey}::api:${msg.id}`;
+        const textKey = normalizeText(text).toLowerCase();
+        const domItem = domItemsByText.get(textKey);
+        const cacheKey = domItem?.cacheKey || `${conversationKey}::api:${msg.id}`;
         batchKeys.push(cacheKey);
-        const previous = seenQuestionMap.get(cacheKey);
-        const index = previous?.index || nextQuestionIndex;
-        if (!previous) nextQuestionIndex += 1;
 
-        const id = previous?.id || `cghj-q-${index}`;
-        const isLong = text.length > LONG_TEXT_THRESHOLD;
+        const index = nextQuestionIndex;
+        nextQuestionIndex += 1;
+        const id = `cghj-q-${index}`;
 
         seenQuestionMap.set(cacheKey, {
           id,
@@ -1941,17 +1968,19 @@
           conversationKey,
           text,
           short: shorten(text, PREVIEW_TEXT_LIMIT),
-          element: previous?.element instanceof HTMLElement ? previous.element : null,
-          replyElement: previous?.replyElement instanceof HTMLElement ? previous.replyElement : null,
-          replyHeadings: previous?.replyHeadings || [],
-          hasReplyHeadings: true,
-          headingsLoaded: false,
+          element: domItem?.element || null,
+          replyElement: domItem?.replyElement || null,
+          replyHeadings: domItem?.replyHeadings || [],
+          hasReplyHeadings: domItem ? domItem.hasReplyHeadings : true,
+          headingsLoaded: domItem ? domItem.headingsLoaded : false,
           index,
-          imageCount: 0,
-          hasImage: false,
-          isLong,
-          isLoaded: previous?.element instanceof HTMLElement && previous.element.isConnected,
-          source: "api",
+          imageCount: domItem?.imageCount || 0,
+          hasImage: domItem?.hasImage || false,
+          isLong: text.length > LONG_TEXT_THRESHOLD,
+          isLoaded: !!domItem,
+          source: domItem ? "merged" : "api",
+          apiIndex: index - 1,
+          apiTotal: result.messages.filter((m) => m.role === "user").length,
         });
       });
 
