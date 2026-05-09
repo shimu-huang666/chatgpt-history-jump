@@ -8,7 +8,7 @@ For Chinese documentation, see [README_CN.md](./README_CN.md).
 
 - Automatically scans user prompts in the current ChatGPT conversation
 - Builds a searchable history panel on the right side of the page
-- Click any item to smoothly jump back to that prompt
+- Click any item to jump back to that prompt
 - Highlights the prompt that is currently closest to the viewport
 - Supports image-containing prompts with visual badges
 - Collapses long prompts and lets you expand them on demand
@@ -129,7 +129,7 @@ When changing behavior or UI, also update the README files and bump the extensio
 
 ## Version
 
-Current version: `v0.2.35`
+Current version: `v0.2.36`
 
 ## License
 

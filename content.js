@@ -38,6 +38,8 @@
   let isDeepScanning = false;
   let locatingQuestionId = null;
   let deepScanOrderedKeys = null;
+  let deepScanCurrentStep = 0;
+  let deepScanTotalSteps = 0;
   let headingWarmupTimer = null;
   const expandedQuestionIds = new Set();
   const expandedReplyHeadingIds = new Set();
@@ -226,10 +228,15 @@
     if (!deepScanBtn) return;
     deepScanBtn.classList.toggle("scanning", isDeepScanning);
     deepScanBtn.disabled = isDeepScanning;
-    deepScanBtn.setAttribute(
-      "title",
-      isDeepScanning ? "\u6b63\u5728\u6df1\u5ea6\u626b\u63cf..." : "\u6df1\u5ea6\u626b\u63cf\u8d85\u957f\u5bf9\u8bdd"
-    );
+    const label = isDeepScanning
+      ? `\u6b63\u5728\u6df1\u5ea6\u626b\u63cf... (${deepScanCurrentStep}/${deepScanTotalSteps})`
+      : "\u6df1\u5ea6\u626b\u63cf\u8d85\u957f\u5bf9\u8bdd";
+    deepScanBtn.setAttribute("title", label);
+    if (isDeepScanning) {
+      deepScanBtn.textContent = `${Math.round((deepScanCurrentStep / Math.max(deepScanTotalSteps, 1)) * 100)}%`;
+    } else {
+      deepScanBtn.textContent = "\u21bb";
+    }
   }
 
   function ensureRoot() {
@@ -1315,8 +1322,12 @@
     const scanKey = activeConversationKey;
 
     try {
-      const foundAbove = await tryLocateQuestionInDirection(item, scroller, -1, scanKey);
-      const found = foundAbove || await tryLocateQuestionInDirection(item, scroller, 1, scanKey);
+      const totalCount = questionItems.length;
+      const isLowerHalf = item.index <= Math.ceil(totalCount / 2);
+      const firstDir = isLowerHalf ? -1 : 1;
+      const secondDir = -firstDir;
+      const foundFirst = await tryLocateQuestionInDirection(item, scroller, firstDir, scanKey);
+      const found = foundFirst || await tryLocateQuestionInDirection(item, scroller, secondDir, scanKey);
 
       if (found && isItemLoaded(found)) {
         activeQuestionId = found.id;
@@ -1718,12 +1729,17 @@
 
     isDeepScanning = true;
     deepScanOrderedKeys = [];
+    deepScanCurrentStep = 0;
+    deepScanTotalSteps = 0;
     cancelHeadingWarmup();
-    syncDeepScanState();
 
     const scroller = getConversationScrollContainer();
     const originalTop = getScrollTop(scroller);
     const scanKey = activeConversationKey;
+    const scrollStep = getScrollStep(scroller);
+    const maxTop = getMaxScrollTop(scroller);
+    deepScanTotalSteps = Math.min(Math.ceil(maxTop / scrollStep), DEEP_SCAN_MAX_STEPS);
+    syncDeepScanState();
 
     try {
       setScrollTop(scroller, 0);
@@ -1736,15 +1752,18 @@
 
       for (let step = 0; step < DEEP_SCAN_MAX_STEPS; step += 1) {
         const currentTop = getScrollTop(scroller);
-        const maxTop = getMaxScrollTop(scroller);
+        const currentMaxTop = getMaxScrollTop(scroller);
 
-        if (currentTop >= maxTop - 4) break;
+        if (currentTop >= currentMaxTop - 4) break;
 
-        const nextTop = Math.min(currentTop + getScrollStep(scroller), maxTop);
+        const nextTop = Math.min(currentTop + scrollStep, currentMaxTop);
         setScrollTop(scroller, nextTop);
         await sleep(DEEP_SCAN_DELAY);
         if (scanKey !== getConversationKey()) break;
         runRefreshAll();
+
+        deepScanCurrentStep = step + 1;
+        syncDeepScanState();
 
         const afterTop = getScrollTop(scroller);
         stableSteps = Math.abs(afterTop - previousTop) < 2 ? stableSteps + 1 : 0;
@@ -1823,9 +1842,6 @@
     if (location.href === lastKnownHref && nextKey === activeConversationKey) return;
 
     resetConversationState(nextKey, true);
-    setTimeout(() => {
-      refreshAll();
-    }, 950);
     setTimeout(() => {
       refreshAll();
     }, 1800);
