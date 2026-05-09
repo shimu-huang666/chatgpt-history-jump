@@ -17,6 +17,7 @@ For Chinese documentation, see [README_CN.md](./README_CN.md).
 - Remembers panel collapsed state per conversation
 - Lets you customize panel side, width, density, and theme locally
 - Supports a manual deep scan for very long conversations that need older turns loaded by scrolling
+- Auto deep scan after page load and conversation switch (can be disabled in settings)
 - Parses reply headings lazily when opened so long conversations index faster
 - Clears and guards cached questions/headings when switching conversations
 - Attempts to restore unloaded cached prompts by scrolling before jumping to them
@@ -70,7 +71,7 @@ After the extension is loaded:
 4. Click an item to jump to that message near the top of the viewport
 5. Expand reply headings to preview top-level sections, then expand any nested secondary headings when needed
 6. Use the gear button to adjust panel side, width, density, and theme
-7. Use the deep scan button to actively scroll through very long conversations and index older loaded turns
+7. The extension auto-scans on page load and conversation switch; use the deep scan button to manually trigger if needed
 8. Click an unloaded cached prompt to let the extension try to scroll it back into the DOM and jump to it
 9. Collapse or expand the panel whenever needed
 
@@ -90,6 +91,7 @@ The extension is implemented as a Manifest V3 content script:
 - Deep scan records prompts from top to bottom and reorders the cached index after scanning
 - Reply heading extraction merges semantic headings with numbered/visual top-level headings instead of choosing only one source
 - After normal scans, up to 12 loaded replies are parsed in the background to restore quick heading previews without blocking long scans
+- Auto deep scan triggers after page load and conversation switch (can be disabled in settings), restoring the original scroll position when done
 
 ## Privacy
 
@@ -129,7 +131,7 @@ When changing behavior or UI, also update the README files and bump the extensio
 
 ## Version
 
-Current version: `v0.2.36`
+Current version: `v0.2.37`
 
 ## License
 

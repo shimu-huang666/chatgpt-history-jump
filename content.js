@@ -11,9 +11,9 @@
   const LONG_TEXT_THRESHOLD = 72;
   const PREVIEW_TEXT_LIMIT = 64;
   const SCROLL_TOP_OFFSET = 20;
-  const DEEP_SCAN_DELAY = 450;
+  const DEEP_SCAN_DELAY = 350;
   const LOCATE_SCAN_DELAY = 260;
-  const DEEP_SCAN_MAX_STEPS = 260;
+  const DEEP_SCAN_MAX_STEPS = 350;
   const HEADING_WARMUP_LIMIT = 12;
   const HEADING_WARMUP_DELAY = 160;
   const DEFAULT_SETTINGS = {
@@ -21,6 +21,7 @@
     width: "standard",
     density: "comfortable",
     theme: "system",
+    autoDeepScan: "on",
   };
 
   let questionItems = [];
@@ -53,6 +54,7 @@
     if (!["narrow", "standard", "wide"].includes(next.width)) next.width = DEFAULT_SETTINGS.width;
     if (!["comfortable", "compact"].includes(next.density)) next.density = DEFAULT_SETTINGS.density;
     if (!["system", "light", "dark"].includes(next.theme)) next.theme = DEFAULT_SETTINGS.theme;
+    if (!["on", "off"].includes(next.autoDeepScan)) next.autoDeepScan = DEFAULT_SETTINGS.autoDeepScan;
     return next;
   }
 
@@ -284,6 +286,13 @@
               <option value="system">\u8ddf\u968f\u7cfb\u7edf</option>
               <option value="light">\u6d45\u8272</option>
               <option value="dark">\u6df1\u8272</option>
+            </select>
+          </label>
+          <label class="cghj-setting-row">
+            <span>\u81ea\u52a8\u626b\u63cf</span>
+            <select data-cghj-setting="autoDeepScan">
+              <option value="on">\u5f00\u542f</option>
+              <option value="off">\u5173\u95ed</option>
             </select>
           </label>
         </div>
@@ -1783,6 +1792,13 @@
     }
   }
 
+  async function autoDeepScanConversation() {
+    if (userSettings.autoDeepScan !== "on") return;
+    if (isDeepScanning) return;
+    if (!ensureConversationState()) return;
+    await deepScanConversation();
+  }
+
   function isRelevantMutationNode(node) {
     if (!(node instanceof HTMLElement)) return false;
 
@@ -1845,6 +1861,9 @@
     setTimeout(() => {
       refreshAll();
     }, 1800);
+    setTimeout(() => {
+      autoDeepScanConversation();
+    }, 3500);
   }
 
   function installUrlWatcher() {
@@ -1882,6 +1901,7 @@
       refreshAll();
       installPageObserver();
       installUrlWatcher();
+      setTimeout(() => autoDeepScanConversation(), 2500);
     };
 
     tryInit();
