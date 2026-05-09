@@ -1861,8 +1861,9 @@
     setTimeout(() => {
       refreshAll();
     }, 1800);
-    setTimeout(() => {
-      autoDeepScanConversation();
+    setTimeout(async () => {
+      const apiLoaded = await loadConversationFromApi();
+      if (!apiLoaded) autoDeepScanConversation();
     }, 3500);
   }
 
@@ -1889,6 +1890,74 @@
     window.addEventListener("hashchange", handleUrlChange);
   }
 
+  async function loadConversationFromApi() {
+    if (!window.__cghjApi) return false;
+    if (!ensureConversationState()) return false;
+
+    try {
+      const result = await window.__cghjApi.loadFullConversation();
+      if (!result?.messages?.length) return false;
+
+      const conversationKey = activeConversationKey || getConversationKey();
+      const batchKeys = [];
+
+      result.messages.forEach((msg) => {
+        if (msg.role !== "user") return;
+
+        const text = normalizeQuestionText(msg.text);
+        if (!shouldKeepAsQuestion(text, 0)) return;
+
+        const cacheKey = `${conversationKey}::api:${msg.id}`;
+        batchKeys.push(cacheKey);
+        const previous = seenQuestionMap.get(cacheKey);
+        const index = previous?.index || nextQuestionIndex;
+        if (!previous) nextQuestionIndex += 1;
+
+        const id = previous?.id || `cghj-q-${index}`;
+        const isLong = text.length > LONG_TEXT_THRESHOLD;
+
+        seenQuestionMap.set(cacheKey, {
+          id,
+          cacheKey,
+          conversationKey,
+          text,
+          short: shorten(text, PREVIEW_TEXT_LIMIT),
+          element: previous?.element instanceof HTMLElement ? previous.element : null,
+          replyElement: previous?.replyElement instanceof HTMLElement ? previous.replyElement : null,
+          replyHeadings: previous?.replyHeadings || [],
+          hasReplyHeadings: true,
+          headingsLoaded: false,
+          index,
+          imageCount: 0,
+          hasImage: false,
+          isLong,
+          isLoaded: previous?.element instanceof HTMLElement && previous.element.isConnected,
+          source: "api",
+        });
+      });
+
+      renumberQuestionItems();
+
+      const results = getCachedQuestionItems();
+      const nextSignature = buildQuestionSignature(results);
+      const changed = nextSignature !== lastQuestionSignature;
+      questionItems = results;
+      lastQuestionSignature = nextSignature;
+
+      if (!questionItems.some((item) => item.id === activeQuestionId)) {
+        activeQuestionId = questionItems[0]?.id || null;
+      }
+
+      updateCount();
+      renderList(true);
+      rebuildIntersectionObserver();
+      return true;
+    } catch (err) {
+      console.warn("[CGHJ] loadConversationFromApi failed:", err);
+      return false;
+    }
+  }
+
   function waitForAppReady() {
     const tryInit = () => {
       const main = document.querySelector("main");
@@ -1901,7 +1970,10 @@
       refreshAll();
       installPageObserver();
       installUrlWatcher();
-      setTimeout(() => autoDeepScanConversation(), 2500);
+      setTimeout(async () => {
+        const apiLoaded = await loadConversationFromApi();
+        if (!apiLoaded) autoDeepScanConversation();
+      }, 2500);
     };
 
     tryInit();
