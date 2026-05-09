@@ -12,9 +12,17 @@ For Chinese documentation, see [README_CN.md](./README_CN.md).
 - Highlights the prompt that is currently closest to the viewport
 - Supports image-containing prompts with visual badges
 - Collapses long prompts and lets you expand them on demand
-- Extracts the highest-level headings from each paired GPT reply using standalone title-line, typography, and nearby-content heuristics, with a fallback reply entry when no heading is detected
+- Extracts the highest-level headings from each paired GPT reply using standalone title-line, typography, and nearby-content heuristics, with nested secondary headings available on demand
 - Adds a line-based heading pass so older replies with plain text section titles are still recognized
 - Remembers panel collapsed state per conversation
+- Lets you customize panel side, width, density, and theme locally
+- Supports a manual deep scan for very long conversations that need older turns loaded by scrolling
+- Parses reply headings lazily when opened so long conversations index faster
+- Clears and guards cached questions/headings when switching conversations
+- Attempts to restore unloaded cached prompts by scrolling before jumping to them
+- Reorders cached prompts after deep scan according to their discovered page order
+- Keeps numbered and visual top-level reply headings alongside semantic headings
+- Warms up reply heading parsing for a small loaded batch after scans
 - Watches page updates dynamically with DOM observers
 
 ## Supported Sites
@@ -22,9 +30,19 @@ For Chinese documentation, see [README_CN.md](./README_CN.md).
 - `https://chatgpt.com/*`
 - `https://chat.openai.com/*`
 
+## Chrome Web Store Release
+
+This repository is being prepared for a free Chrome Web Store release. The
+extension does not include paid features, ads, analytics, remote licensing, or
+any developer-operated backend service.
+
+After the store listing is published, the Chrome Web Store installation link can
+be added here.
+
 ## Installation
 
-This project is currently designed to be loaded as an unpacked browser extension.
+Until the Chrome Web Store listing is available, load the extension as an
+unpacked browser extension.
 
 ### Chrome
 
@@ -50,8 +68,11 @@ After the extension is loaded:
 2. Look for the history panel on the right side
 3. Use the search box to filter previous prompts
 4. Click an item to jump to that message near the top of the viewport
-5. Expand reply headings to preview sections and jump to the selected heading
-6. Collapse or expand the panel whenever needed
+5. Expand reply headings to preview top-level sections, then expand any nested secondary headings when needed
+6. Use the gear button to adjust panel side, width, density, and theme
+7. Use the deep scan button to actively scroll through very long conversations and index older loaded turns
+8. Click an unloaded cached prompt to let the extension try to scroll it back into the DOM and jump to it
+9. Collapse or expand the panel whenever needed
 
 ## How It Works
 
@@ -59,9 +80,24 @@ The extension is implemented as a Manifest V3 content script:
 
 - `content.js` scans ChatGPT user message nodes and builds the question list
 - `styles.css` renders the floating side panel and interaction states
-- `chrome.storage.local` stores per-conversation collapsed state
+- `chrome.storage.local` stores per-conversation collapsed state and local display settings
 - `MutationObserver` tracks conversation updates
 - `IntersectionObserver` keeps the active question in sync with scrolling
+- Deep scan temporarily scrolls through the current conversation to let ChatGPT load older DOM nodes, then restores the previous scroll position
+- Reply headings are parsed lazily when a heading preview is opened, keeping normal scans lightweight
+- Conversation caches are keyed and reset by conversation path to avoid showing stale headings after navigation
+- Cached prompts that are not currently loaded can be located by targeted scrolling when clicked
+- Deep scan records prompts from top to bottom and reorders the cached index after scanning
+- Reply heading extraction merges semantic headings with numbered/visual top-level headings instead of choosing only one source
+- After normal scans, up to 12 loaded replies are parsed in the background to restore quick heading previews without blocking long scans
+
+## Privacy
+
+ChatGPT History Jump works locally in your browser. It reads the current ChatGPT
+page only to build the in-page navigation panel and does not upload prompts,
+replies, images, account details, or browsing activity to any external server.
+
+See [PRIVACY_POLICY.md](./PRIVACY_POLICY.md) for the full policy.
 
 ## Project Structure
 
@@ -70,6 +106,9 @@ The extension is implemented as a Manifest V3 content script:
 |-- manifest.json
 |-- content.js
 |-- styles.css
+|-- PRIVACY_POLICY.md
+|-- LICENSE
+|-- store-assets/
 |-- README_CN.md
 |-- icons/
 ```
@@ -86,11 +125,12 @@ When changing behavior or UI, also update the README files and bump the extensio
 - If ChatGPT changes its page layout, selectors may need to be updated
 - It only indexes prompts from the currently open conversation
 - Image detection is based on DOM elements rather than deep semantic analysis
+- Very long conversations may require deep scan because ChatGPT can unload older DOM nodes until they are scrolled into view
 
 ## Version
 
-Current version: `v0.2.25`
+Current version: `v0.2.35`
 
 ## License
 
-No license file is included yet. Add one if you plan to distribute this project publicly.
+This project is licensed under the [MIT License](./LICENSE).
