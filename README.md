@@ -131,7 +131,14 @@ When changing behavior or UI, also update the README files and bump the extensio
 
 ## Version
 
-Current version: `v0.2.37`
+Current version: `v0.2.38`
+
+### Changelog
+
+- **0.2.38** — Add Backend API data layer, load full conversation history via `/backend-api/conversation`, remove deep scan dependency
+- **0.2.37** — Auto deep scan, optimized scan parameters (DEEP_SCAN_DELAY 350ms, MAX_STEPS 350)
+- **0.2.36** — Fix README inconsistencies, remove unused backup file, optimize jump search strategy, deep scan progress indicator
+- **0.2.35** — Deep scan, lazy reply heading parsing, conversation cache isolation, unloaded item locate-and-jump
 
 ## License
 

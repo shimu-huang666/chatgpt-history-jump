@@ -1891,6 +1891,7 @@
   }
 
   async function loadConversationFromApi() {
+    console.log("[CGHJ] loadConversationFromApi called, __cghjApi:", !!window.__cghjApi);
     if (!window.__cghjApi) return false;
     if (!ensureConversationState()) return false;
 

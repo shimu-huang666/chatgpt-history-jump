@@ -135,4 +135,6 @@
     parseConversationMessages,
     loadFullConversation,
   };
+
+  console.log("[CGHJ-API] module loaded");
 })();
