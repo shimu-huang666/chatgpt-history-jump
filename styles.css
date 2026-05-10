@@ -194,6 +194,16 @@
   color: var(--cghj-accent);
 }
 
+@keyframes cghj-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.cghj-refresh-icon.spinning {
+  display: inline-block;
+  animation: cghj-spin 0.6s ease-in-out;
+}
+
 .cghj-settings {
   margin: 0 16px 10px;
   padding: 10px;

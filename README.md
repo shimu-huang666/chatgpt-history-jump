@@ -123,10 +123,11 @@ When changing behavior or UI, also update the README files and bump the extensio
 
 ## Version
 
-Current version: `v3.0.0`
+Current version: `v3.0.1`
 
 ### Changelog
 
+- **3.0.1** — Remove minimum length filter for short messages; only filter empty messages
 - **3.0.0** — Remove deep scan feature, Backend API as sole data source; remove heading summary line from cards for a more compact layout
 - **0.2.44** — Poll for virtual scroller rendering after proportional scroll (up to 3s), add scroll nudges to trigger DOM rendering, add map diagnostic logging
 - **0.2.43** — Preserve API cacheKey through scanQuestions merge so locate jump works; add proportional scroll debug logging; optimize apiTotal computation

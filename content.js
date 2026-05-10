@@ -192,7 +192,7 @@
   function shouldKeepAsQuestion(text, imageCount = 0) {
     if (imageCount > 0) return true;
     if (!text) return false;
-    return text.trim().length > 3;
+    return text.trim().length > 0;
   }
 
   function getMessageImageCount(el) {
@@ -227,10 +227,10 @@
     root.innerHTML = `
       <aside id="${PANEL_ID}">
         <div class="cghj-header">
-          <div class="cghj-title">\u5386\u53f2\u95ee\u9898</div>
+          <div class="cghj-title">历史对话</div>
           <div class="cghj-actions">
             <button type="button" class="cghj-settings-toggle" aria-expanded="false" aria-controls="${SETTINGS_ID}" title="\u8bbe\u7f6e">&#9881;</button>
-            <button type="button" class="cghj-refresh" title="\u5237\u65b0">&#8635;</button>
+            <button type="button" class="cghj-refresh" title="\u5237\u65b0"><span class="cghj-refresh-icon">&#8635;</span></button>
           </div>
         </div>
         <div id="${SETTINGS_ID}" class="cghj-settings" hidden>
@@ -265,7 +265,7 @@
             </select>
           </label>
         </div>
-        <input id="${SEARCH_ID}" type="text" placeholder="\u641c\u7d22\u5386\u53f2\u95ee\u9898..." />
+        <input id="${SEARCH_ID}" type="text" placeholder="搜索历史对话..." />
         <div class="cghj-meta">
           <span class="cghj-count">0</span>
           <span>\u6761</span>
@@ -287,6 +287,12 @@
     syncSettingsControls(root);
 
     refreshBtn?.addEventListener("click", () => {
+      const icon = refreshBtn.querySelector(".cghj-refresh-icon");
+      if (icon) {
+        icon.classList.remove("spinning");
+        void icon.offsetWidth;
+        icon.classList.add("spinning");
+      }
       refreshAll();
     });
 
