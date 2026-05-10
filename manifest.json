@@ -25,10 +25,12 @@
       ],
       "js": [
         "api.js",
-        "content.js"
+        "content.js",
+        "pink-theme.js"
       ],
       "css": [
-        "styles.css"
+        "styles.css",
+        "pink-theme.css"
       ],
       "run_at": "document_idle"
     }
