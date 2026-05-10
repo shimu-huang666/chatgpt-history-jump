@@ -123,10 +123,17 @@ When changing behavior or UI, also update the README files and bump the extensio
 
 ## Version
 
-Current version: `v3.0.1`
+Current version: `v3.1.0`
 
 ### Changelog
 
+- **3.1.0** — Fix repeated prompt indexing and reply heading extraction/jump behavior across API and DOM sources
+- **3.0.7** — Resolve API-generated reply headings back to live DOM nodes before jumping
+- **3.0.6** — Use the final assistant reply before the next user prompt when extracting reply headings
+- **3.0.5** — Prefer numbered API reply headings over DOM paragraph false positives
+- **3.0.4** — Build reply headings from Backend API assistant text when the reply DOM is unloaded or unreadable
+- **3.0.3** — Extract reply headings from numbered text lines when ChatGPT does not expose separate heading nodes
+- **3.0.2** — Preserve repeated identical user prompts by matching API and DOM items in occurrence order
 - **3.0.1** — Remove minimum length filter for short messages; only filter empty messages
 - **3.0.0** — Remove deep scan feature, Backend API as sole data source; remove heading summary line from cards for a more compact layout
 - **0.2.44** — Poll for virtual scroller rendering after proportional scroll (up to 3s), add scroll nudges to trigger DOM rendering, add map diagnostic logging

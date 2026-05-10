@@ -395,7 +395,9 @@
       if (!(turn instanceof HTMLElement)) return;
 
       const userEl = turn.querySelector("[data-message-author-role='user']");
-      const replyEl = turn.querySelector("[data-message-author-role='assistant']");
+      const replyEls = [...turn.querySelectorAll("[data-message-author-role='assistant']")]
+        .filter((el) => el instanceof HTMLElement);
+      const replyEl = replyEls[replyEls.length - 1];
 
       if (!(userEl instanceof HTMLElement) || !(replyEl instanceof HTMLElement)) return;
       if (seenUsers.has(userEl)) return;
@@ -422,7 +424,7 @@
 
         if (nextRole === "assistant") {
           replyEl = nextEl;
-          break;
+          continue;
         }
 
         if (nextRole === "user") {
@@ -444,7 +446,7 @@
 
     return sequentialPairs.map(({ userEl, replyEl }) => ({
       userEl,
-      replyEl: turnPairMap.get(userEl) || replyEl,
+      replyEl: replyEl || turnPairMap.get(userEl),
     }));
   }
 
@@ -512,9 +514,12 @@
     };
   }
 
+  const THINKING_TEXT_RE = /^(?:\u6B63\u5728\u601D\u8003|\u601D\u8003\u4E2D|Thinking|Reasoning|Processing)[\s.\u2026]*$/i;
+
   function isHeadingLikeText(text) {
     if (!text) return false;
     if (text.length > 140) return false;
+    if (THINKING_TEXT_RE.test(text.trim())) return false;
     if (/^[\-\*\u2022]/.test(text)) return false;
     if (/[\u3002\uFF01!]$/.test(text) && text.length > 24) return false;
     if (/[\uFF1F?]$/.test(text) && text.length > 36) return false;
@@ -625,6 +630,33 @@
       });
 
     return candidates[0]?.element || rootEl;
+  }
+
+  function findConnectedHeadingElementByText(rootEl, text) {
+    if (!(rootEl instanceof HTMLElement) || !rootEl.isConnected || !text) return null;
+
+    const normalizedTarget = normalizeText(text);
+    const candidates = [...rootEl.querySelectorAll("h1, h2, h3, h4, h5, h6, strong, b, p, li, div, span")]
+      .filter((el) => el instanceof HTMLElement)
+      .map((el) => ({
+        element: el,
+        text: normalizeText(getElementText(el)),
+      }))
+      .filter((item) =>
+        item.text &&
+        (item.text === normalizedTarget ||
+          item.text.startsWith(`${normalizedTarget} `) ||
+          item.text.startsWith(`${normalizedTarget}\n`) ||
+          item.text.startsWith(`${normalizedTarget}:`) ||
+          item.text.startsWith(`${normalizedTarget}\uFF1A`))
+      )
+      .sort((a, b) => {
+        const textGap = a.text.length - b.text.length;
+        if (textGap !== 0) return textGap;
+        return getElementDepth(b.element) - getElementDepth(a.element);
+      });
+
+    return candidates[0]?.element || null;
   }
 
   function collectSemanticHeadingCandidates(rootEl, baseFontSize) {
@@ -786,6 +818,129 @@
       });
   }
 
+  function collectTextLineHeadingCandidates(rootEl, baseFontSize) {
+    if (!(rootEl instanceof HTMLElement)) return [];
+
+    const lines = getTextLines(getElementText(rootEl));
+    if (lines.length < 2) return [];
+
+    const seenTexts = new Set();
+    return lines.map((line, idx) => {
+      const text = normalizeText(line.replace(/^#{1,6}\s+/, ""));
+      if (!isHeadingLikeText(text)) return null;
+
+      const textShape = getTextShapeSignals(text);
+      const nextLine = lines.slice(idx + 1).find(Boolean) || "";
+      const shouldConsider =
+        textShape.isNumberedSection ||
+        textShape.endsWithColon ||
+        textShape.isQuestionHeading ||
+        (textShape.isShortLabel && nextLine.length >= 10);
+
+      if (!shouldConsider) return null;
+      if (textShape.isLikelySentence && !textShape.isNumberedSection && !textShape.endsWithColon) {
+        return null;
+      }
+      if (seenTexts.has(text)) return null;
+      seenTexts.add(text);
+
+      const anchorEl = findBestHeadingElementForText(rootEl, text);
+      const metrics = getHeadingMetrics(anchorEl, baseFontSize);
+      return {
+        element: anchorEl,
+        text,
+        semanticLevel: null,
+        visualLevel: Math.round(metrics.maxFontSize * 2) / 2,
+        tier: getVisualHeadingTier(textShape, metrics, baseFontSize, textShape.isNumberedSection ? 24 : 12),
+        fontSize: metrics.maxFontSize,
+        fontWeight: metrics.maxFontWeight,
+        score:
+          metrics.maxFontSize * 100 +
+          metrics.maxFontWeight +
+          (textShape.isNumberedSection ? 32 : 0) +
+          (textShape.endsWithColon ? 16 : 0) +
+          (idx === 0 ? 8 : 0),
+      };
+    }).filter(Boolean);
+  }
+
+  function normalizeMarkdownHeadingLine(line) {
+    return normalizeText(String(line || "")
+      .replace(/^#{1,6}\s+/, "")
+      .replace(/^\*\*(.+)\*\*$/, "$1")
+      .replace(/^__(.+)__$/, "$1")
+      .replace(/^\*(.+)\*$/, "$1")
+      .replace(/^_(.+)_$/, "$1"));
+  }
+
+  function isFallbackReplyHeading(heading) {
+    return !!heading?.id && heading.id.endsWith("-reply-fallback");
+  }
+
+  function hasOnlyFallbackReplyHeading(headings) {
+    return headings?.length === 1 && isFallbackReplyHeading(headings[0]);
+  }
+
+  function hasNumberedReplyHeading(headings) {
+    return !!headings?.some((heading) => getTextShapeSignals(heading.text).isNumberedSection);
+  }
+
+  function hasOnlyLikelySentenceReplyHeading(headings) {
+    if (headings?.length !== 1) return false;
+
+    const textShape = getTextShapeSignals(headings[0].text);
+    return textShape.isLikelySentence &&
+      !textShape.isNumberedSection &&
+      !textShape.endsWithColon &&
+      !textShape.isQuestionHeading;
+  }
+
+  function extractReplyHeadingsFromText(replyText, questionId) {
+    const lines = getTextLines(replyText);
+    if (lines.length < 2) return [];
+
+    const seenTexts = new Set();
+    const candidates = lines.map((line, idx) => {
+      const text = normalizeMarkdownHeadingLine(line);
+      if (!isHeadingLikeText(text)) return null;
+
+      const textShape = getTextShapeSignals(text);
+      const nextLine = lines.slice(idx + 1).map(normalizeMarkdownHeadingLine).find(Boolean) || "";
+      const shouldConsider =
+        textShape.isNumberedSection ||
+        textShape.endsWithColon ||
+        textShape.isQuestionHeading ||
+        (textShape.isShortLabel && nextLine.length >= 10);
+
+      if (!shouldConsider) return null;
+      if (textShape.isLikelySentence && !textShape.isNumberedSection && !textShape.endsWithColon) {
+        return null;
+      }
+      if (seenTexts.has(text)) return null;
+      seenTexts.add(text);
+
+      return {
+        text,
+        tier: textShape.isNumberedSection ? 1 : 2,
+        lineIndex: idx,
+      };
+    }).filter(Boolean);
+
+    if (!candidates.length) return [];
+
+    const bestTier = Math.min(...candidates.map((candidate) => candidate.tier));
+    return candidates
+      .filter((candidate) => candidate.tier === bestTier)
+      .map((candidate, idx) => ({
+        id: `${questionId}-api-h-${idx + 1}`,
+        text: candidate.text,
+        short: shorten(candidate.text, PREVIEW_TEXT_LIMIT),
+        level: 1,
+        element: null,
+        children: [],
+      }));
+  }
+
   function createReplyHeadingEntry(candidate, questionId, indexKey, children = []) {
     return {
       id: assignHeadingAnchor(candidate.element, questionId, indexKey),
@@ -850,26 +1005,32 @@
 
     const roots = getReplyContentRoots(replyEl);
     const baseFontSize = Number.parseFloat(getComputedStyle(replyEl).fontSize) || 16;
-    const candidateMap = new Map();
+    const candidateItems = [];
+    const addCandidate = (candidate) => {
+      if (!candidate?.element || !candidate.text) return;
+      if (candidateItems.some((item) => item.element === candidate.element && item.text === candidate.text)) return;
+      candidateItems.push(candidate);
+    };
 
     roots.forEach((rootEl) => {
       collectSemanticHeadingCandidates(rootEl, baseFontSize).forEach((candidate) => {
-        if (candidateMap.has(candidate.element)) return;
-        candidateMap.set(candidate.element, candidate);
+        addCandidate(candidate);
       });
 
       collectVisualHeadingCandidates(rootEl, baseFontSize).forEach((candidate) => {
-        if (candidateMap.has(candidate.element)) return;
-        candidateMap.set(candidate.element, candidate);
+        addCandidate(candidate);
       });
 
       collectLineHeadingCandidates(rootEl, baseFontSize).forEach((candidate) => {
-        if (candidateMap.has(candidate.element)) return;
-        candidateMap.set(candidate.element, candidate);
+        addCandidate(candidate);
+      });
+
+      collectTextLineHeadingCandidates(rootEl, baseFontSize).forEach((candidate) => {
+        addCandidate(candidate);
       });
     });
 
-    const candidates = [...candidateMap.values()].sort((a, b) =>
+    const candidates = candidateItems.sort((a, b) =>
       compareNodeOrder(a.element, b.element)
     );
 
@@ -980,6 +1141,25 @@
     return [...seenQuestionMap.values()].sort((a, b) => a.index - b.index);
   }
 
+  function buildQuestionTextQueues(items, conversationKey = activeConversationKey) {
+    const queues = new Map();
+    items.forEach((item) => {
+      if (item.conversationKey !== conversationKey || !item.text) return;
+
+      const textKey = normalizeText(item.text).toLowerCase();
+      if (!queues.has(textKey)) queues.set(textKey, []);
+      queues.get(textKey).push(item);
+    });
+
+    queues.forEach((queue) => queue.sort((a, b) => a.index - b.index));
+    return queues;
+  }
+
+  function shiftQuestionTextQueue(queues, textKey) {
+    const queue = queues.get(textKey);
+    return queue?.shift() || null;
+  }
+
   function renumberQuestionItems() {
     getCachedQuestionItems().forEach((item, idx) => {
       item.index = idx + 1;
@@ -1013,6 +1193,7 @@
     if (!(replyEl instanceof HTMLElement)) return [];
 
     const replyText = normalizeText(getMessageTextFromContainer(replyEl));
+    if (THINKING_TEXT_RE.test(replyText.trim())) return [];
     const previewText = replyText
       ? shorten(replyText.split(/(?<=[.!?\u3002\uFF01\uFF1F])\s+|\n+/)[0], PREVIEW_TEXT_LIMIT)
       : "\u56de\u590d\u5185\u5bb9";
@@ -1035,13 +1216,8 @@
     markCachedQuestionsUnloaded();
     const batchKeys = [];
 
-    // Build text\u2192existing item index for dedup with API-loaded items
-    const existingByText = new Map();
-    seenQuestionMap.forEach((item) => {
-      if (item.conversationKey === activeConversationKey && item.text) {
-        existingByText.set(normalizeText(item.text).toLowerCase(), item);
-      }
-    });
+    // Match API-loaded items to DOM nodes by text occurrence order.
+    const existingByText = buildQuestionTextQueues([...seenQuestionMap.values()]);
 
     pairs.forEach(({ userEl, replyEl }, idx) => {
       if (!(userEl instanceof HTMLElement)) return;
@@ -1054,7 +1230,9 @@
 
       const cacheKey = getQuestionCacheKey(userEl, text, imageCount);
       const textKey = normalizeText(text).toLowerCase();
-      const previous = seenQuestionMap.get(cacheKey) || existingByText.get(textKey);
+      const previousByCacheKey = seenQuestionMap.get(cacheKey);
+      if (previousByCacheKey) shiftQuestionTextQueue(existingByText, textKey);
+      const previous = previousByCacheKey || shiftQuestionTextQueue(existingByText, textKey);
 
       // If an API-loaded entry matched by text with a different cache key,
       // update it in-place to preserve the original cacheKey reference
@@ -1127,10 +1305,15 @@
   }
 
   function ensureReplyHeadings(item) {
-    if (!item || item.headingsLoaded) return !!item?.replyHeadings?.length;
+    if (!item) return false;
+    if (item.headingsLoaded && !hasOnlyFallbackReplyHeading(item.replyHeadings)) {
+      return !!item.replyHeadings?.length;
+    }
     if (!ensureConversationState()) return false;
     if (item.conversationKey && item.conversationKey !== activeConversationKey) return false;
-    if (!(item.replyElement instanceof HTMLElement) || !item.replyElement.isConnected) return false;
+    if (!(item.replyElement instanceof HTMLElement) || !item.replyElement.isConnected) {
+      return !!item.replyHeadings?.length;
+    }
 
     const freshHeadings = extractReplyHeadings(item.replyElement, item.id);
     const mergedHeadings = mergeReplyHeadings(item.cacheKey, freshHeadings);
@@ -1379,39 +1562,63 @@
       return;
     }
     activeQuestionId = item.id;
+    locatingQuestionId = item.id;
     updateActiveListState();
     jumpToElement(item.element);
+    setTimeout(() => { locatingQuestionId = null; }, 600);
+  }
+
+  function resolveHeadingElement(item, heading) {
+    if (heading?.element instanceof HTMLElement && heading.element.isConnected) {
+      return heading.element;
+    }
+
+    if (!(item?.replyElement instanceof HTMLElement) || !item.replyElement.isConnected) {
+      return null;
+    }
+
+    const resolved = findConnectedHeadingElementByText(item.replyElement, heading?.text);
+    if (resolved) heading.element = resolved;
+    return resolved;
   }
 
   function jumpToHeading(item, heading) {
-    if (heading?.element instanceof HTMLElement && heading.element.isConnected) {
+    const headingElement = resolveHeadingElement(item, heading);
+    if (headingElement) {
       activeQuestionId = item.id;
+      locatingQuestionId = item.id;
       updateActiveListState();
-      jumpToElement(heading.element);
+      jumpToElement(headingElement);
+      setTimeout(() => { locatingQuestionId = null; }, 600);
       return;
     }
 
     if (item?.replyElement instanceof HTMLElement && item.replyElement.isConnected) {
       activeQuestionId = item.id;
+      locatingQuestionId = item.id;
       updateActiveListState();
       jumpToElement(item.replyElement);
+      setTimeout(() => { locatingQuestionId = null; }, 600);
       return;
     }
 
     if (!heading?.element) return;
     activeQuestionId = item.id;
+    locatingQuestionId = item.id;
     updateActiveListState();
     jumpToElement(heading.element);
+    setTimeout(() => { locatingQuestionId = null; }, 600);
   }
 
   function updateActiveListState() {
     const root = document.getElementById(EXT_ID);
     if (!root) return;
 
-    root.querySelectorAll(".cghj-item").forEach((card) => {
-      if (!(card instanceof HTMLElement)) return;
-      card.classList.toggle("active", card.dataset.questionId === activeQuestionId);
+    root.querySelectorAll(".cghj-item.active").forEach((card) => {
+      card.classList.remove("active");
     });
+    const activeCard = root.querySelector(`.cghj-item[data-question-id="${activeQuestionId}"]`);
+    if (activeCard) activeCard.classList.add("active");
   }
 
   function createQuestionExpandButton(item, isExpanded) {
@@ -1690,6 +1897,7 @@
 
     activeIo = new IntersectionObserver(
       (entries) => {
+        if (locatingQuestionId) return;
         const visible = entries
           .filter((entry) => entry.isIntersecting)
           .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
@@ -1824,6 +2032,26 @@
     window.addEventListener("hashchange", handleUrlChange);
   }
 
+  function getAssistantMessagesUntilNextUser(messages, startIndex) {
+    const assistantMessages = [];
+
+    for (let i = startIndex + 1; i < messages.length; i += 1) {
+      const msg = messages[i];
+      if (msg.role === "assistant") assistantMessages.push(msg);
+      if (msg.role === "user") return assistantMessages;
+    }
+
+    return assistantMessages;
+  }
+
+  function getBestApiReplyHeadings(messages, questionId) {
+    const headingSets = messages
+      .map((msg) => extractReplyHeadingsFromText(msg.text || "", questionId))
+      .filter((headings) => headings.length);
+
+    return headingSets.find(hasNumberedReplyHeading) || headingSets[headingSets.length - 1] || [];
+  }
+
   async function loadConversationFromApi() {
     if (!window.__cghjApi) return false;
     if (!ensureConversationState()) return false;
@@ -1834,13 +2062,11 @@
 
       const conversationKey = activeConversationKey || getConversationKey();
 
-      // Build text→existing DOM item index for preserving element references
-      const domItemsByText = new Map();
-      seenQuestionMap.forEach((item) => {
-        if (item.conversationKey === conversationKey && item.text && item.element instanceof HTMLElement && item.element.isConnected) {
-          domItemsByText.set(normalizeText(item.text).toLowerCase(), item);
-        }
-      });
+      // Preserve DOM references by matching repeated text in occurrence order.
+      const domItemsByText = buildQuestionTextQueues(
+        getCachedQuestionItems().filter((item) => item.element instanceof HTMLElement && item.element.isConnected),
+        conversationKey
+      );
 
       // Clear and rebuild from API
       seenQuestionMap.clear();
@@ -1851,7 +2077,7 @@
       const apiUserTotal = apiUserMessages.length;
       let filteredOut = 0;
 
-      result.messages.forEach((msg) => {
+      result.messages.forEach((msg, msgIndex) => {
         if (msg.role !== "user") return;
 
         const text = normalizeQuestionText(msg.text);
@@ -1862,13 +2088,23 @@
         }
 
         const textKey = normalizeText(text).toLowerCase();
-        const domItem = domItemsByText.get(textKey);
+        const domItem = shiftQuestionTextQueue(domItemsByText, textKey);
         const cacheKey = domItem?.cacheKey || `${conversationKey}::api:${msg.id}`;
         batchKeys.push(cacheKey);
 
         const index = nextQuestionIndex;
         nextQuestionIndex += 1;
         const id = `cghj-q-${index}`;
+        const assistantMessages = getAssistantMessagesUntilNextUser(result.messages, msgIndex);
+        const apiReplyHeadings = getBestApiReplyHeadings(assistantMessages, id);
+        const domReplyHeadings = domItem?.replyHeadings || [];
+        const shouldUseApiHeadings =
+          apiReplyHeadings.length &&
+          (hasNumberedReplyHeading(apiReplyHeadings) ||
+            !domReplyHeadings.length ||
+            hasOnlyFallbackReplyHeading(domReplyHeadings) ||
+            hasOnlyLikelySentenceReplyHeading(domReplyHeadings));
+        const replyHeadings = shouldUseApiHeadings ? apiReplyHeadings : domReplyHeadings;
 
         seenQuestionMap.set(cacheKey, {
           id,
@@ -1878,9 +2114,9 @@
           short: shorten(text, PREVIEW_TEXT_LIMIT),
           element: domItem?.element || null,
           replyElement: domItem?.replyElement || null,
-          replyHeadings: domItem?.replyHeadings || [],
-          hasReplyHeadings: domItem ? domItem.hasReplyHeadings : true,
-          headingsLoaded: domItem ? domItem.headingsLoaded : false,
+          replyHeadings,
+          hasReplyHeadings: replyHeadings.length > 0 || (domItem ? domItem.hasReplyHeadings : assistantMessages.length > 0),
+          headingsLoaded: replyHeadings.length > 0 || (domItem ? domItem.headingsLoaded : false),
           index,
           imageCount: domItem?.imageCount || 0,
           hasImage: domItem?.hasImage || false,
