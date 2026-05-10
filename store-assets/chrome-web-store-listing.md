@@ -33,11 +33,9 @@ Key features:
 - Top-level reply heading previews with expandable secondary headings
 - Per-conversation collapsed state saved locally
 - Local display settings for panel side, width, density, and theme
-- Manual deep scan for very long conversations that need older turns loaded by scrolling
 - Lazy reply-heading parsing for faster indexing in long conversations
 - Conversation-scoped caches to avoid stale entries after switching chats
 - Targeted restore-and-jump for cached prompts that are temporarily unloaded
-- Deep-scan reordering based on discovered page order
 - Combined semantic and numbered/visual top-level reply heading detection
 - Capped background reply-heading warmup for loaded conversations
 

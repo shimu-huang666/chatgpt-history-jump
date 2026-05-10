@@ -11,9 +11,8 @@
   const LONG_TEXT_THRESHOLD = 72;
   const PREVIEW_TEXT_LIMIT = 64;
   const SCROLL_TOP_OFFSET = 20;
-  const DEEP_SCAN_DELAY = 350;
   const LOCATE_SCAN_DELAY = 260;
-  const DEEP_SCAN_MAX_STEPS = 350;
+  const LOCATE_MAX_STEPS = 350;
   const HEADING_WARMUP_LIMIT = 12;
   const HEADING_WARMUP_DELAY = 160;
   const DEFAULT_SETTINGS = {
@@ -21,7 +20,6 @@
     width: "standard",
     density: "comfortable",
     theme: "system",
-    autoDeepScan: "on",
   };
 
   let questionItems = [];
@@ -36,11 +34,7 @@
   let urlWatcherInstalled = false;
   let userSettings = { ...DEFAULT_SETTINGS };
   let nextQuestionIndex = 1;
-  let isDeepScanning = false;
   let locatingQuestionId = null;
-  let deepScanOrderedKeys = null;
-  let deepScanCurrentStep = 0;
-  let deepScanTotalSteps = 0;
   let headingWarmupTimer = null;
   const expandedQuestionIds = new Set();
   const expandedReplyHeadingIds = new Set();
@@ -54,7 +48,6 @@
     if (!["narrow", "standard", "wide"].includes(next.width)) next.width = DEFAULT_SETTINGS.width;
     if (!["comfortable", "compact"].includes(next.density)) next.density = DEFAULT_SETTINGS.density;
     if (!["system", "light", "dark"].includes(next.theme)) next.theme = DEFAULT_SETTINGS.theme;
-    if (!["on", "off"].includes(next.autoDeepScan)) next.autoDeepScan = DEFAULT_SETTINGS.autoDeepScan;
     return next;
   }
 
@@ -225,22 +218,6 @@
     });
   }
 
-  function syncDeepScanState(root = document.getElementById(EXT_ID)) {
-    const deepScanBtn = root?.querySelector(".cghj-deep-scan");
-    if (!deepScanBtn) return;
-    deepScanBtn.classList.toggle("scanning", isDeepScanning);
-    deepScanBtn.disabled = isDeepScanning;
-    const label = isDeepScanning
-      ? `\u6b63\u5728\u6df1\u5ea6\u626b\u63cf... (${deepScanCurrentStep}/${deepScanTotalSteps})`
-      : "\u6df1\u5ea6\u626b\u63cf\u8d85\u957f\u5bf9\u8bdd";
-    deepScanBtn.setAttribute("title", label);
-    if (isDeepScanning) {
-      deepScanBtn.textContent = `${Math.round((deepScanCurrentStep / Math.max(deepScanTotalSteps, 1)) * 100)}%`;
-    } else {
-      deepScanBtn.textContent = "\u21bb";
-    }
-  }
-
   function ensureRoot() {
     let root = document.getElementById(EXT_ID);
     if (root) return root;
@@ -253,7 +230,6 @@
           <div class="cghj-title">\u5386\u53f2\u95ee\u9898</div>
           <div class="cghj-actions">
             <button type="button" class="cghj-settings-toggle" aria-expanded="false" aria-controls="${SETTINGS_ID}" title="\u8bbe\u7f6e">&#9881;</button>
-            <button type="button" class="cghj-deep-scan" title="\u6df1\u5ea6\u626b\u63cf\u8d85\u957f\u5bf9\u8bdd">&#8645;</button>
             <button type="button" class="cghj-refresh" title="\u5237\u65b0">&#8635;</button>
           </div>
         </div>
@@ -288,13 +264,6 @@
               <option value="dark">\u6df1\u8272</option>
             </select>
           </label>
-          <label class="cghj-setting-row">
-            <span>\u81ea\u52a8\u626b\u63cf</span>
-            <select data-cghj-setting="autoDeepScan">
-              <option value="on">\u5f00\u542f</option>
-              <option value="off">\u5173\u95ed</option>
-            </select>
-          </label>
         </div>
         <input id="${SEARCH_ID}" type="text" placeholder="\u641c\u7d22\u5386\u53f2\u95ee\u9898..." />
         <div class="cghj-meta">
@@ -311,7 +280,6 @@
     const refreshBtn = root.querySelector(".cghj-refresh");
     const settingsBtn = root.querySelector(".cghj-settings-toggle");
     const settingsPanel = root.querySelector(`#${SETTINGS_ID}`);
-    const deepScanBtn = root.querySelector(".cghj-deep-scan");
     const searchInput = root.querySelector(`#${SEARCH_ID}`);
     const toggleBtn = root.querySelector(`#${TOGGLE_ID}`);
 
@@ -320,10 +288,6 @@
 
     refreshBtn?.addEventListener("click", () => {
       refreshAll();
-    });
-
-    deepScanBtn?.addEventListener("click", () => {
-      deepScanConversation();
     });
 
     settingsBtn?.addEventListener("click", () => {
@@ -1020,36 +984,6 @@
     nextQuestionIndex = seenQuestionMap.size + 1;
   }
 
-  function recordDeepScanOrder(cacheKeys) {
-    if (!deepScanOrderedKeys) return;
-    cacheKeys.forEach((key) => {
-      if (key && !deepScanOrderedKeys.includes(key)) {
-        deepScanOrderedKeys.push(key);
-      }
-    });
-  }
-
-  function applyDeepScanOrder() {
-    if (!deepScanOrderedKeys?.length) {
-      renumberQuestionItems();
-      return;
-    }
-
-    const orderedSet = new Set(deepScanOrderedKeys);
-    const ordered = deepScanOrderedKeys
-      .map((key) => seenQuestionMap.get(key))
-      .filter(Boolean);
-    const remaining = getCachedQuestionItems().filter((item) => !orderedSet.has(item.cacheKey));
-
-    [...ordered, ...remaining].forEach((item, idx) => {
-      item.index = idx + 1;
-      if (item.element instanceof HTMLElement && item.element.isConnected) {
-        assignQuestionAnchor(item.element, idx, item.id);
-      }
-    });
-    nextQuestionIndex = seenQuestionMap.size + 1;
-  }
-
   function mergeReplyHeadings(cacheKey, freshHeadings) {
     const cachedHeadings = cachedReplyHeadingMap.get(cacheKey) || [];
     const connectedFreshHeadings = freshHeadings.filter(
@@ -1160,10 +1094,7 @@
       });
     });
 
-    recordDeepScanOrder(batchKeys);
-    if (!isDeepScanning) {
-      renumberQuestionItems();
-    }
+    renumberQuestionItems();
 
     const results = getCachedQuestionItems();
     const nextSignature = buildQuestionSignature(results);
@@ -1223,11 +1154,11 @@
 
   function scheduleHeadingWarmup() {
     cancelHeadingWarmup();
-    if (isDeepScanning || locatingQuestionId || Date.now() < conversationSwitchReadyAt) return;
+    if (locatingQuestionId || Date.now() < conversationSwitchReadyAt) return;
 
     headingWarmupTimer = setTimeout(() => {
       headingWarmupTimer = null;
-      if (isDeepScanning || locatingQuestionId || !ensureConversationState()) return;
+      if (locatingQuestionId || !ensureConversationState()) return;
 
       let parsedCount = 0;
       const loadedItems = getCachedQuestionItems().filter(
@@ -1315,7 +1246,7 @@
     let stableSteps = 0;
     let previousTop = -1;
 
-    for (let step = 0; step < DEEP_SCAN_MAX_STEPS; step += 1) {
+    for (let step = 0; step < LOCATE_MAX_STEPS; step += 1) {
       if (scanKey !== getConversationKey()) return null;
 
       runRefreshAll();
@@ -1722,13 +1653,6 @@
         contentEl.appendChild(unloadedEl);
       }
 
-      if (item.hasReplyHeadings) {
-        const summaryEl = document.createElement("span");
-        summaryEl.className = "cghj-outline-summary";
-        summaryEl.textContent = getReplyHeadingSummary(item);
-        contentEl.appendChild(summaryEl);
-      }
-
       mainBtn.append(indexEl, contentEl);
       row.appendChild(mainBtn);
 
@@ -1804,73 +1728,6 @@
 
   const refreshAll = debounce(runRefreshAll, 250);
 
-  async function deepScanConversation() {
-    if (isDeepScanning) return;
-    if (!ensureConversationState()) return;
-
-    isDeepScanning = true;
-    deepScanOrderedKeys = [];
-    deepScanCurrentStep = 0;
-    deepScanTotalSteps = 0;
-    cancelHeadingWarmup();
-
-    const scroller = getConversationScrollContainer();
-    const originalTop = getScrollTop(scroller);
-    const scanKey = activeConversationKey;
-    const scrollStep = getScrollStep(scroller);
-    const maxTop = getMaxScrollTop(scroller);
-    deepScanTotalSteps = Math.min(Math.ceil(maxTop / scrollStep), DEEP_SCAN_MAX_STEPS);
-    syncDeepScanState();
-
-    try {
-      setScrollTop(scroller, 0);
-      await sleep(DEEP_SCAN_DELAY * 2);
-      if (scanKey !== getConversationKey()) return;
-      runRefreshAll();
-
-      let stableSteps = 0;
-      let previousTop = -1;
-
-      for (let step = 0; step < DEEP_SCAN_MAX_STEPS; step += 1) {
-        const currentTop = getScrollTop(scroller);
-        const currentMaxTop = getMaxScrollTop(scroller);
-
-        if (currentTop >= currentMaxTop - 4) break;
-
-        const nextTop = Math.min(currentTop + scrollStep, currentMaxTop);
-        setScrollTop(scroller, nextTop);
-        await sleep(DEEP_SCAN_DELAY);
-        if (scanKey !== getConversationKey()) break;
-        runRefreshAll();
-
-        deepScanCurrentStep = step + 1;
-        syncDeepScanState();
-
-        const afterTop = getScrollTop(scroller);
-        stableSteps = Math.abs(afterTop - previousTop) < 2 ? stableSteps + 1 : 0;
-        previousTop = afterTop;
-        if (stableSteps >= 6) break;
-      }
-    } finally {
-      applyDeepScanOrder();
-      deepScanOrderedKeys = null;
-      const restoredTop = Math.min(originalTop, getMaxScrollTop(scroller));
-      setScrollTop(scroller, restoredTop);
-      await sleep(120);
-      runRefreshAll();
-      isDeepScanning = false;
-      syncDeepScanState();
-      scheduleHeadingWarmup();
-    }
-  }
-
-  async function autoDeepScanConversation() {
-    if (userSettings.autoDeepScan !== "on") return;
-    if (isDeepScanning) return;
-    if (!ensureConversationState()) return;
-    await deepScanConversation();
-  }
-
   function isRelevantMutationNode(node) {
     if (!(node instanceof HTMLElement)) return false;
 
@@ -1934,8 +1791,7 @@
       refreshAll();
     }, 1800);
     setTimeout(async () => {
-      const apiLoaded = await loadConversationFromApi();
-      if (!apiLoaded) autoDeepScanConversation();
+      await loadConversationFromApi();
     }, 3500);
   }
 
@@ -2067,8 +1923,7 @@
       installPageObserver();
       installUrlWatcher();
       setTimeout(async () => {
-        const apiLoaded = await loadConversationFromApi();
-        if (!apiLoaded) autoDeepScanConversation();
+        await loadConversationFromApi();
       }, 2500);
     };
 

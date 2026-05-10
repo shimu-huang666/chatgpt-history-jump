@@ -16,12 +16,9 @@ For Chinese documentation, see [README_CN.md](./README_CN.md).
 - Adds a line-based heading pass so older replies with plain text section titles are still recognized
 - Remembers panel collapsed state per conversation
 - Lets you customize panel side, width, density, and theme locally
-- Supports a manual deep scan for very long conversations that need older turns loaded by scrolling
-- Auto deep scan after page load and conversation switch (can be disabled in settings)
 - Parses reply headings lazily when opened so long conversations index faster
 - Clears and guards cached questions/headings when switching conversations
 - Attempts to restore unloaded cached prompts by scrolling before jumping to them
-- Reorders cached prompts after deep scan according to their discovered page order
 - Keeps numbered and visual top-level reply headings alongside semantic headings
 - Warms up reply heading parsing for a small loaded batch after scans
 - Watches page updates dynamically with DOM observers
@@ -71,8 +68,7 @@ After the extension is loaded:
 4. Click an item to jump to that message near the top of the viewport
 5. Expand reply headings to preview top-level sections, then expand any nested secondary headings when needed
 6. Use the gear button to adjust panel side, width, density, and theme
-7. The extension auto-scans on page load and conversation switch; use the deep scan button to manually trigger if needed
-8. Click an unloaded cached prompt to let the extension try to scroll it back into the DOM and jump to it
+7. Click an unloaded cached prompt to let the extension try to scroll it back into the DOM and jump to it
 9. Collapse or expand the panel whenever needed
 
 ## How It Works
@@ -84,14 +80,11 @@ The extension is implemented as a Manifest V3 content script:
 - `chrome.storage.local` stores per-conversation collapsed state and local display settings
 - `MutationObserver` tracks conversation updates
 - `IntersectionObserver` keeps the active question in sync with scrolling
-- Deep scan temporarily scrolls through the current conversation to let ChatGPT load older DOM nodes, then restores the previous scroll position
 - Reply headings are parsed lazily when a heading preview is opened, keeping normal scans lightweight
 - Conversation caches are keyed and reset by conversation path to avoid showing stale headings after navigation
 - Cached prompts that are not currently loaded can be located by targeted scrolling when clicked
-- Deep scan records prompts from top to bottom and reorders the cached index after scanning
 - Reply heading extraction merges semantic headings with numbered/visual top-level headings instead of choosing only one source
 - After normal scans, up to 12 loaded replies are parsed in the background to restore quick heading previews without blocking long scans
-- Auto deep scan triggers after page load and conversation switch (can be disabled in settings), restoring the original scroll position when done
 
 ## Privacy
 
@@ -127,14 +120,14 @@ When changing behavior or UI, also update the README files and bump the extensio
 - If ChatGPT changes its page layout, selectors may need to be updated
 - It only indexes prompts from the currently open conversation
 - Image detection is based on DOM elements rather than deep semantic analysis
-- Very long conversations may require deep scan because ChatGPT can unload older DOM nodes until they are scrolled into view
 
 ## Version
 
-Current version: `v0.2.44`
+Current version: `v3.0.0`
 
 ### Changelog
 
+- **3.0.0** — Remove deep scan feature, Backend API as sole data source; remove heading summary line from cards for a more compact layout
 - **0.2.44** — Poll for virtual scroller rendering after proportional scroll (up to 3s), add scroll nudges to trigger DOM rendering, add map diagnostic logging
 - **0.2.43** — Preserve API cacheKey through scanQuestions merge so locate jump works; add proportional scroll debug logging; optimize apiTotal computation
 - **0.2.42** — Fix duplicate entries after API load (text-based dedup between API and DOM cache keys), fast proportional scroll jump for API-loaded items

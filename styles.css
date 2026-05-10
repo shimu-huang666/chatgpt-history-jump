@@ -175,7 +175,6 @@
 }
 
 .cghj-refresh,
-.cghj-deep-scan,
 .cghj-settings-toggle {
   border: none;
   background: transparent;
@@ -189,17 +188,10 @@
 }
 
 .cghj-refresh:hover,
-.cghj-deep-scan:hover,
-.cghj-deep-scan.scanning,
 .cghj-settings-toggle:hover,
 .cghj-settings-toggle[aria-expanded="true"] {
   background: var(--cghj-soft-hover);
   color: var(--cghj-accent);
-}
-
-.cghj-deep-scan:disabled {
-  cursor: wait;
-  opacity: 0.75;
 }
 
 .cghj-settings {
@@ -375,11 +367,6 @@
   color: var(--cghj-accent);
   font-size: 11px;
   font-weight: 600;
-}
-
-.cghj-outline-summary {
-  font-size: 11px;
-  color: var(--cghj-muted);
 }
 
 .cghj-tool {
@@ -641,9 +628,7 @@
     box-shadow: 0 2px 8px rgba(96, 165, 250, 0.15);
   }
 
-  #chatgpt-history-jump-root.cghj-theme-system .cghj-refresh:hover,
-  #chatgpt-history-jump-root.cghj-theme-system .cghj-deep-scan:hover,
-  #chatgpt-history-jump-root.cghj-theme-system .cghj-deep-scan.scanning {
+  #chatgpt-history-jump-root.cghj-theme-system .cghj-refresh:hover {
     background: rgba(96, 165, 250, 0.1);
     color: #60a5fa;
   }
