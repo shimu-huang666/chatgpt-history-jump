@@ -9,6 +9,7 @@
   const SETTINGS_ID = "chatgpt-history-jump-settings";
   const SETTINGS_KEY = "settings:v1";
   const SUPPORT_QR_PATH = "store-assets/wechat-support-author.jpg";
+  const OFFICIAL_REPO_URL = "https://github.com/shimu-huang666/chatgpt-history-jump";
   const LONG_TEXT_THRESHOLD = 72;
   const PREVIEW_TEXT_LIMIT = 64;
   const SCROLL_TOP_OFFSET = 20;
@@ -21,6 +22,7 @@
     width: "standard",
     density: "comfortable",
     theme: "system",
+    stickyExpanded: true,
   };
 
   let questionItems = [];
@@ -49,6 +51,7 @@
     if (!["narrow", "standard", "wide"].includes(next.width)) next.width = DEFAULT_SETTINGS.width;
     if (!["comfortable", "compact"].includes(next.density)) next.density = DEFAULT_SETTINGS.density;
     if (!["system", "light", "dark"].includes(next.theme)) next.theme = DEFAULT_SETTINGS.theme;
+    if (typeof next.stickyExpanded !== "boolean") next.stickyExpanded = DEFAULT_SETTINGS.stickyExpanded;
     return next;
   }
 
@@ -215,7 +218,12 @@
   function syncSettingsControls(root) {
     root?.querySelectorAll("[data-cghj-setting]").forEach((control) => {
       const key = control.getAttribute("data-cghj-setting");
-      if (key && key in userSettings) control.value = userSettings[key];
+      if (!key || !(key in userSettings)) return;
+      if (control instanceof HTMLInputElement && control.type === "checkbox") {
+        control.checked = userSettings[key];
+      } else {
+        control.value = userSettings[key];
+      }
     });
   }
 
@@ -267,12 +275,19 @@
               <option value="dark">\u6df1\u8272</option>
             </select>
           </label>
+          <label class="cghj-setting-row">
+            <span>\u5c55\u5f00\u9501\u5b9a</span>
+            <input type="checkbox" data-cghj-setting="stickyExpanded" />
+          </label>
           <div class="cghj-author">
             <div class="cghj-author-line">\u539f\u521b\u4f5c\u8005\uff1a<span>\u65f6\u6155</span></div>
           </div>
           <div class="cghj-support">
-            <div class="cghj-support-title">\u652f\u6301\u4f5c\u8005</div>
-            <img class="cghj-support-qr" src="${supportQrUrl}" alt="\u5fae\u4fe1\u652f\u4ed8\u6536\u6b3e\u7801" loading="lazy" />
+            <button type="button" class="cghj-support-toggle" aria-expanded="false">\u652f\u6301\u4f5c\u8005</button>
+            <div class="cghj-support-panel" hidden>
+              <img class="cghj-support-qr" src="${supportQrUrl}" alt="\u5fae\u4fe1\u652f\u4ed8" loading="lazy" />
+            </div>
+            <button type="button" class="cghj-repo-link">\u5b98\u65b9\u4ed3\u5e93</button>
           </div>
         </div>
         <input id="${SEARCH_ID}" type="text" placeholder="搜索历史对话..." />
@@ -290,6 +305,9 @@
     const refreshBtn = root.querySelector(".cghj-refresh");
     const settingsBtn = root.querySelector(".cghj-settings-toggle");
     const settingsPanel = root.querySelector(`#${SETTINGS_ID}`);
+    const supportBtn = root.querySelector(".cghj-support-toggle");
+    const supportPanel = root.querySelector(".cghj-support-panel");
+    const repoBtn = root.querySelector(".cghj-repo-link");
     const searchInput = root.querySelector(`#${SEARCH_ID}`);
     const toggleBtn = root.querySelector(`#${TOGGLE_ID}`);
 
@@ -312,12 +330,25 @@
       settingsBtn.setAttribute("aria-expanded", isOpen ? "false" : "true");
     });
 
+    supportBtn?.addEventListener("click", () => {
+      if (!supportPanel) return;
+      const isOpen = !supportPanel.hidden;
+      supportPanel.hidden = isOpen;
+      supportBtn.setAttribute("aria-expanded", isOpen ? "false" : "true");
+    });
+
+    repoBtn?.addEventListener("click", () => {
+      window.open(OFFICIAL_REPO_URL, "_blank", "noopener,noreferrer");
+    });
+
     settingsPanel?.addEventListener("change", async (event) => {
       const control = event.target;
-      if (!(control instanceof HTMLSelectElement)) return;
       const key = control.getAttribute("data-cghj-setting");
       if (!key || !(key in userSettings)) return;
-      await saveSettings({ ...userSettings, [key]: control.value });
+      const value = control instanceof HTMLInputElement && control.type === "checkbox"
+        ? control.checked
+        : control.value;
+      await saveSettings({ ...userSettings, [key]: value });
     });
 
     searchInput?.addEventListener("input", () => {
@@ -874,13 +905,28 @@
     }).filter(Boolean);
   }
 
-  function normalizeMarkdownHeadingLine(line) {
-    return normalizeText(String(line || "")
+  function normalizeMarkdownHeadingText(text) {
+    return normalizeText(String(text || "")
+      .replace(/\s+#{1,6}\s*$/, "")
       .replace(/^#{1,6}\s+/, "")
       .replace(/^\*\*(.+)\*\*$/, "$1")
       .replace(/^__(.+)__$/, "$1")
       .replace(/^\*(.+)\*$/, "$1")
       .replace(/^_(.+)_$/, "$1"));
+  }
+
+  function parseMarkdownHeadingLine(line) {
+    const raw = String(line || "").trim();
+    const match = raw.match(/^(#{1,6})\s+(.+)$/);
+    if (!match) return null;
+
+    const text = normalizeMarkdownHeadingText(match[2]);
+    if (!isHeadingLikeText(text)) return null;
+
+    return {
+      markdownLevel: match[1].length,
+      text,
+    };
   }
 
   function isFallbackReplyHeading(heading) {
@@ -891,64 +937,57 @@
     return headings?.length === 1 && isFallbackReplyHeading(headings[0]);
   }
 
-  function hasNumberedReplyHeading(headings) {
-    return !!headings?.some((heading) => getTextShapeSignals(heading.text).isNumberedSection);
-  }
-
-  function hasOnlyLikelySentenceReplyHeading(headings) {
-    if (headings?.length !== 1) return false;
-
-    const textShape = getTextShapeSignals(headings[0].text);
-    return textShape.isLikelySentence &&
-      !textShape.isNumberedSection &&
-      !textShape.endsWithColon &&
-      !textShape.isQuestionHeading;
-  }
-
   function extractReplyHeadingsFromText(replyText, questionId) {
-    const lines = getTextLines(replyText);
-    if (lines.length < 2) return [];
-
     const seenTexts = new Set();
-    const candidates = lines.map((line, idx) => {
-      const text = normalizeMarkdownHeadingLine(line);
-      if (!isHeadingLikeText(text)) return null;
-
-      const textShape = getTextShapeSignals(text);
-      const nextLine = lines.slice(idx + 1).map(normalizeMarkdownHeadingLine).find(Boolean) || "";
-      const shouldConsider =
-        textShape.isNumberedSection ||
-        textShape.endsWithColon ||
-        textShape.isQuestionHeading ||
-        (textShape.isShortLabel && nextLine.length >= 10);
-
-      if (!shouldConsider) return null;
-      if (textShape.isLikelySentence && !textShape.isNumberedSection && !textShape.endsWithColon) {
-        return null;
-      }
+    const candidates = String(replyText || "").split(/\n+/).map((line) => {
+      const candidate = parseMarkdownHeadingLine(line);
+      if (!candidate) return null;
+      const text = candidate.text;
       if (seenTexts.has(text)) return null;
       seenTexts.add(text);
-
-      return {
-        text,
-        tier: textShape.isNumberedSection ? 1 : 2,
-        lineIndex: idx,
-      };
+      return candidate;
     }).filter(Boolean);
 
     if (!candidates.length) return [];
+    return buildMarkdownReplyHeadingTree(candidates, questionId);
+  }
 
-    const bestTier = Math.min(...candidates.map((candidate) => candidate.tier));
-    return candidates
-      .filter((candidate) => candidate.tier === bestTier)
-      .map((candidate, idx) => ({
+  function buildMarkdownReplyHeadingTree(candidates, questionId) {
+    const topLevel = Math.min(...candidates.map((candidate) => candidate.markdownLevel));
+    const topCandidates = candidates.filter((candidate) => candidate.markdownLevel === topLevel);
+
+    return topCandidates.map((top, idx) => {
+      const nextTop = topCandidates[idx + 1];
+      const start = candidates.indexOf(top);
+      const end = nextTop ? candidates.indexOf(nextTop) : candidates.length;
+      const sectionCandidates = candidates.slice(start + 1, end < 0 ? candidates.length : end);
+      const childLevel = sectionCandidates.length
+        ? Math.min(...sectionCandidates.map((candidate) => candidate.markdownLevel))
+        : null;
+      const children = childLevel
+        ? sectionCandidates
+          .filter((candidate) => candidate.markdownLevel === childLevel)
+          .map((child, childIdx) => ({
+            id: `${questionId}-api-h-${idx + 1}-child-${childIdx + 1}`,
+            text: child.text,
+            short: shorten(child.text, PREVIEW_TEXT_LIMIT),
+            level: 2,
+            element: null,
+            source: "markdown",
+            children: [],
+          }))
+        : [];
+
+      return {
         id: `${questionId}-api-h-${idx + 1}`,
-        text: candidate.text,
-        short: shorten(candidate.text, PREVIEW_TEXT_LIMIT),
+        text: top.text,
+        short: shorten(top.text, PREVIEW_TEXT_LIMIT),
         level: 1,
         element: null,
-        children: [],
-      }));
+        source: "markdown",
+        children,
+      };
+    });
   }
 
   function createReplyHeadingEntry(candidate, questionId, indexKey, children = []) {
@@ -1821,7 +1860,7 @@
       const isReplyExpanded = expandedReplyHeadingIds.has(item.id);
 
       const card = document.createElement("div");
-      card.className = `cghj-item${item.id === activeQuestionId ? " active" : ""}${item.isLoaded === false ? " unloaded" : ""}${locatingQuestionId === item.id ? " locating" : ""}`;
+      card.className = `cghj-item${item.id === activeQuestionId ? " active" : ""}${item.isLoaded === false ? " unloaded" : ""}${locatingQuestionId === item.id ? " locating" : ""}${isReplyExpanded && userSettings.stickyExpanded ? " reply-expanded" : ""}`;
       card.dataset.questionId = item.id;
 
       const row = document.createElement("div");
@@ -1897,6 +1936,45 @@
     });
 
     list.appendChild(frag);
+    updateStickyOffsets(list);
+  }
+
+  function updateStickyOffsets(list) {
+    if (!userSettings.stickyExpanded) return;
+    const expandedItems = list.querySelectorAll(".cghj-item.reply-expanded");
+    expandedItems.forEach((item, index) => {
+      if (index === expandedItems.length - 1) {
+        item.classList.add("reply-sticky");
+        item.style.top = "0";
+      } else {
+        item.classList.remove("reply-sticky");
+        item.style.top = "";
+      }
+    });
+    bindHeadingPanelWheelEvents(list);
+  }
+
+  function bindHeadingPanelWheelEvents(list) {
+    list.querySelectorAll(".cghj-item.reply-sticky .cghj-heading-panel").forEach((panel) => {
+      if (panel.dataset.wheelBound) return;
+      panel.dataset.wheelBound = "true";
+      let extraTop = 0;
+      panel.addEventListener("wheel", (event) => {
+        const item = panel.closest(".cghj-item");
+        if (!item) return;
+        const isAtBottom = panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 1;
+        const isAtTop = panel.scrollTop <= 0;
+        if (event.deltaY > 0 && isAtBottom) {
+          event.preventDefault();
+          extraTop = Math.max(extraTop - event.deltaY, -item.offsetHeight);
+          item.style.top = `${extraTop}px`;
+        } else if (event.deltaY < 0 && extraTop < 0 && isAtTop) {
+          event.preventDefault();
+          extraTop = Math.min(extraTop - event.deltaY, 0);
+          item.style.top = `${extraTop}px`;
+        }
+      }, { passive: false });
+    });
   }
 
   function rebuildIntersectionObserver() {
@@ -2059,7 +2137,7 @@
       .map((msg) => extractReplyHeadingsFromText(msg.text || "", questionId))
       .filter((headings) => headings.length);
 
-    return headingSets.find(hasNumberedReplyHeading) || headingSets[headingSets.length - 1] || [];
+    return headingSets[headingSets.length - 1] || [];
   }
 
   async function loadConversationFromApi() {
@@ -2108,12 +2186,7 @@
         const assistantMessages = getAssistantMessagesUntilNextUser(result.messages, msgIndex);
         const apiReplyHeadings = getBestApiReplyHeadings(assistantMessages, id);
         const domReplyHeadings = domItem?.replyHeadings || [];
-        const shouldUseApiHeadings =
-          apiReplyHeadings.length &&
-          (hasNumberedReplyHeading(apiReplyHeadings) ||
-            !domReplyHeadings.length ||
-            hasOnlyFallbackReplyHeading(domReplyHeadings) ||
-            hasOnlyLikelySentenceReplyHeading(domReplyHeadings));
+        const shouldUseApiHeadings = apiReplyHeadings.length > 0;
         const replyHeadings = shouldUseApiHeadings ? apiReplyHeadings : domReplyHeadings;
 
         seenQuestionMap.set(cacheKey, {

@@ -13,6 +13,7 @@ For Chinese documentation, see [README_CN.md](./README_CN.md).
 - Supports image-containing prompts with visual badges
 - Collapses long prompts and lets you expand them on demand
 - Extracts the highest-level headings from each paired GPT reply using standalone title-line, typography, and nearby-content heuristics, with nested secondary headings available on demand
+- Preserves Markdown `#` heading levels from API replies so `##` and `###` sections stay correctly nested
 - Adds a line-based heading pass so older replies with plain text section titles are still recognized
 - Remembers panel collapsed state per conversation
 - Lets you customize panel side, width, density, and theme locally
@@ -83,8 +84,18 @@ The extension is implemented as a Manifest V3 content script:
 - Reply headings are parsed lazily when a heading preview is opened, keeping normal scans lightweight
 - Conversation caches are keyed and reset by conversation path to avoid showing stale headings after navigation
 - Cached prompts that are not currently loaded can be located by targeted scrolling when clicked
-- Reply heading extraction merges semantic headings with numbered/visual top-level headings instead of choosing only one source
+- API reply heading extraction only trusts raw Markdown heading lines such as `##` and `###`; if a reply has no Markdown headings, the extension falls back to DOM-based heading detection
+- DOM reply heading extraction merges semantic headings with numbered/visual top-level headings instead of choosing only one source
 - After normal scans, up to 12 loaded replies are parsed in the background to restore quick heading previews without blocking long scans
+
+### Reply Heading Recognition
+
+Reply heading previews use two paths:
+
+- Backend API text: raw Markdown heading lines are treated as authoritative. The smallest `#` level found in a reply becomes the top level, and the next deeper heading level becomes expandable child headings. For example, `##` headings are shown as top-level reply headings and `###` headings below them are nested children.
+- Rendered DOM: when the API text has no Markdown headings, the extension reads the loaded ChatGPT reply DOM and falls back to semantic tags (`h1`-`h6`), numbered headings, and visual heading signals such as typography and nearby content.
+
+Plain API text without any `#` heading markers is not guessed as a heading. This avoids promoting normal paragraphs or list items into reply headings.
 
 ## Privacy
 
@@ -123,10 +134,21 @@ When changing behavior or UI, also update the README files and bump the extensio
 
 ## Version
 
-Current version: `v3.1.1`
+Current version: `v3.2.2`
 
 ### Changelog
 
+- **3.2.2** — Simplify API reply heading parsing to raw Markdown headings only
+- **3.2.1** — Prefer raw Markdown heading levels from API replies when building reply heading previews
+- **3.2.0** — Only lock the last expanded item, fixing visual glitches with multiple expanded items
+- **3.1.9** — After heading panel scrolls to bottom, continue scrolling to smoothly slide card up and hide
+- **3.1.8** — Fix expanded item floating overlay issue; heading panel now has max-height with scroll
+- **3.1.7** — Only lock the heading row instead of entire expanded panel, preventing scroll blocking when many headings exist
+- **3.1.6** — Stack multiple expanded items sequentially at top instead of overlapping
+- **3.1.5** — Add "Sticky expanded" toggle in settings to control whether expanded reply headings lock to top
+- **3.1.4** — Lock expanded reply heading item to top of list when scrolling
+- **3.1.3** — Add an official repository button to the settings support area
+- **3.1.2** — Show the support section only after clicking the support author control
 - **3.1.1** — Add original author attribution and a support section to the settings panel
 - **3.1.0** — Fix repeated prompt indexing and reply heading extraction/jump behavior across API and DOM sources
 - **3.0.7** — Resolve API-generated reply headings back to live DOM nodes before jumping
