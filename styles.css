@@ -237,6 +237,37 @@
   font-size: 12px;
 }
 
+.cghj-author {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.cghj-author-line,
+.cghj-support-title {
+  font-size: 12px;
+  color: var(--cghj-muted);
+}
+
+.cghj-author-line span,
+.cghj-support-title {
+  font-weight: 700;
+  color: var(--cghj-text);
+}
+
+.cghj-support {
+  margin-top: 10px;
+}
+
+.cghj-support-qr {
+  display: block;
+  width: 100%;
+  max-width: 220px;
+  margin: 8px auto 0;
+  border-radius: 8px;
+  background: #fff;
+}
+
 #chatgpt-history-jump-search {
   margin: 0 16px;
   padding: 10px 12px;

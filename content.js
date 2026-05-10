@@ -8,6 +8,7 @@
   const TOGGLE_ID = "chatgpt-history-jump-toggle";
   const SETTINGS_ID = "chatgpt-history-jump-settings";
   const SETTINGS_KEY = "settings:v1";
+  const SUPPORT_QR_PATH = "store-assets/wechat-support-author.jpg";
   const LONG_TEXT_THRESHOLD = 72;
   const PREVIEW_TEXT_LIMIT = 64;
   const SCROLL_TOP_OFFSET = 20;
@@ -222,6 +223,8 @@
     let root = document.getElementById(EXT_ID);
     if (root) return root;
 
+    const supportQrUrl = chrome.runtime.getURL(SUPPORT_QR_PATH);
+
     root = document.createElement("div");
     root.id = EXT_ID;
     root.innerHTML = `
@@ -264,6 +267,13 @@
               <option value="dark">\u6df1\u8272</option>
             </select>
           </label>
+          <div class="cghj-author">
+            <div class="cghj-author-line">\u539f\u521b\u4f5c\u8005\uff1a<span>\u65f6\u6155</span></div>
+          </div>
+          <div class="cghj-support">
+            <div class="cghj-support-title">\u652f\u6301\u4f5c\u8005</div>
+            <img class="cghj-support-qr" src="${supportQrUrl}" alt="\u5fae\u4fe1\u652f\u4ed8\u6536\u6b3e\u7801" loading="lazy" />
+          </div>
         </div>
         <input id="${SEARCH_ID}" type="text" placeholder="搜索历史对话..." />
         <div class="cghj-meta">

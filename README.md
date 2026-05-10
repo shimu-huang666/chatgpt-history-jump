@@ -123,10 +123,11 @@ When changing behavior or UI, also update the README files and bump the extensio
 
 ## Version
 
-Current version: `v3.1.0`
+Current version: `v3.1.1`
 
 ### Changelog
 
+- **3.1.1** — Add original author attribution and a support section to the settings panel
 - **3.1.0** — Fix repeated prompt indexing and reply heading extraction/jump behavior across API and DOM sources
 - **3.0.7** — Resolve API-generated reply headings back to live DOM nodes before jumping
 - **3.0.6** — Use the final assistant reply before the next user prompt when extracting reply headings
