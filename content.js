@@ -6,9 +6,21 @@
   const LIST_ID = "chatgpt-history-jump-list";
   const SEARCH_ID = "chatgpt-history-jump-search";
   const TOGGLE_ID = "chatgpt-history-jump-toggle";
+  const SETTINGS_ID = "chatgpt-history-jump-settings";
+  const SETTINGS_KEY = "settings:v1";
   const LONG_TEXT_THRESHOLD = 72;
   const PREVIEW_TEXT_LIMIT = 64;
   const SCROLL_TOP_OFFSET = 20;
+  const LOCATE_SCAN_DELAY = 260;
+  const LOCATE_MAX_STEPS = 350;
+  const HEADING_WARMUP_LIMIT = 12;
+  const HEADING_WARMUP_DELAY = 160;
+  const DEFAULT_SETTINGS = {
+    side: "right",
+    width: "standard",
+    density: "comfortable",
+    theme: "system",
+  };
 
   let questionItems = [];
   let activeQuestionId = null;
@@ -17,10 +29,40 @@
   let lastQuestionSignature = "";
   let lastRenderSignature = "";
   let lastKnownHref = location.href;
+  let activeConversationKey = getConversationKey();
+  let conversationSwitchReadyAt = 0;
   let urlWatcherInstalled = false;
+  let userSettings = { ...DEFAULT_SETTINGS };
+  let nextQuestionIndex = 1;
+  let locatingQuestionId = null;
+  let headingWarmupTimer = null;
   const expandedQuestionIds = new Set();
   const expandedReplyHeadingIds = new Set();
+  const expandedChildHeadingIds = new Set();
   const cachedReplyHeadingMap = new Map();
+  const seenQuestionMap = new Map();
+
+  function normalizeSettings(settings) {
+    const next = { ...DEFAULT_SETTINGS, ...(settings || {}) };
+    if (!["left", "right"].includes(next.side)) next.side = DEFAULT_SETTINGS.side;
+    if (!["narrow", "standard", "wide"].includes(next.width)) next.width = DEFAULT_SETTINGS.width;
+    if (!["comfortable", "compact"].includes(next.density)) next.density = DEFAULT_SETTINGS.density;
+    if (!["system", "light", "dark"].includes(next.theme)) next.theme = DEFAULT_SETTINGS.theme;
+    return next;
+  }
+
+  function applySettings(root) {
+    if (!root) return;
+    root.classList.toggle("cghj-side-left", userSettings.side === "left");
+    root.classList.toggle("cghj-side-right", userSettings.side !== "left");
+    root.classList.toggle("cghj-width-narrow", userSettings.width === "narrow");
+    root.classList.toggle("cghj-width-standard", userSettings.width === "standard");
+    root.classList.toggle("cghj-width-wide", userSettings.width === "wide");
+    root.classList.toggle("cghj-density-compact", userSettings.density === "compact");
+    root.classList.toggle("cghj-theme-system", userSettings.theme === "system");
+    root.classList.toggle("cghj-theme-light", userSettings.theme === "light");
+    root.classList.toggle("cghj-theme-dark", userSettings.theme === "dark");
+  }
 
   function syncToggleState(root, collapsed) {
     const toggleBtn = root?.querySelector(`#${TOGGLE_ID}`);
@@ -45,6 +87,31 @@
 
   function getConversationKey() {
     return location.pathname || "default";
+  }
+
+  function resetConversationState(nextKey = getConversationKey(), deferScan = false) {
+    activeConversationKey = nextKey;
+    lastKnownHref = location.href;
+    conversationSwitchReadyAt = deferScan ? Date.now() + 900 : 0;
+    lastQuestionSignature = "";
+    lastRenderSignature = "";
+    activeQuestionId = null;
+    questionItems = [];
+    nextQuestionIndex = 1;
+    expandedQuestionIds.clear();
+    expandedReplyHeadingIds.clear();
+    expandedChildHeadingIds.clear();
+    cachedReplyHeadingMap.clear();
+    seenQuestionMap.clear();
+    cancelHeadingWarmup();
+    renderList(true);
+  }
+
+  function ensureConversationState() {
+    const key = getConversationKey();
+    if (key === activeConversationKey) return true;
+    resetConversationState(key, true);
+    return false;
   }
 
   function isContextValid() {
@@ -75,6 +142,28 @@
     } catch (err) {
       console.warn("[CGHJ] loadCollapsed failed:", err);
       return false;
+    }
+  }
+
+  async function saveSettings(settings) {
+    userSettings = normalizeSettings(settings);
+    applySettings(document.getElementById(EXT_ID));
+    if (!isContextValid()) return;
+    try {
+      await chrome.storage.local.set({ [SETTINGS_KEY]: userSettings });
+    } catch (err) {
+      console.warn("[CGHJ] saveSettings failed:", err);
+    }
+  }
+
+  async function loadSettings() {
+    if (!isContextValid()) return { ...DEFAULT_SETTINGS };
+    try {
+      const res = await chrome.storage.local.get([SETTINGS_KEY]);
+      return normalizeSettings(res[SETTINGS_KEY]);
+    } catch (err) {
+      console.warn("[CGHJ] loadSettings failed:", err);
+      return { ...DEFAULT_SETTINGS };
     }
   }
 
@@ -122,6 +211,13 @@
     }).length;
   }
 
+  function syncSettingsControls(root) {
+    root?.querySelectorAll("[data-cghj-setting]").forEach((control) => {
+      const key = control.getAttribute("data-cghj-setting");
+      if (key && key in userSettings) control.value = userSettings[key];
+    });
+  }
+
   function ensureRoot() {
     let root = document.getElementById(EXT_ID);
     if (root) return root;
@@ -132,7 +228,42 @@
       <aside id="${PANEL_ID}">
         <div class="cghj-header">
           <div class="cghj-title">\u5386\u53f2\u95ee\u9898</div>
-          <button type="button" class="cghj-refresh" title="\u5237\u65b0">&#8635;</button>
+          <div class="cghj-actions">
+            <button type="button" class="cghj-settings-toggle" aria-expanded="false" aria-controls="${SETTINGS_ID}" title="\u8bbe\u7f6e">&#9881;</button>
+            <button type="button" class="cghj-refresh" title="\u5237\u65b0">&#8635;</button>
+          </div>
+        </div>
+        <div id="${SETTINGS_ID}" class="cghj-settings" hidden>
+          <label class="cghj-setting-row">
+            <span>\u4f4d\u7f6e</span>
+            <select data-cghj-setting="side">
+              <option value="right">\u53f3\u4fa7</option>
+              <option value="left">\u5de6\u4fa7</option>
+            </select>
+          </label>
+          <label class="cghj-setting-row">
+            <span>\u5bbd\u5ea6</span>
+            <select data-cghj-setting="width">
+              <option value="narrow">\u7d27\u51d1</option>
+              <option value="standard">\u6807\u51c6</option>
+              <option value="wide">\u5bbd\u677e</option>
+            </select>
+          </label>
+          <label class="cghj-setting-row">
+            <span>\u5bc6\u5ea6</span>
+            <select data-cghj-setting="density">
+              <option value="comfortable">\u8212\u9002</option>
+              <option value="compact">\u7d27\u51d1</option>
+            </select>
+          </label>
+          <label class="cghj-setting-row">
+            <span>\u4e3b\u9898</span>
+            <select data-cghj-setting="theme">
+              <option value="system">\u8ddf\u968f\u7cfb\u7edf</option>
+              <option value="light">\u6d45\u8272</option>
+              <option value="dark">\u6df1\u8272</option>
+            </select>
+          </label>
         </div>
         <input id="${SEARCH_ID}" type="text" placeholder="\u641c\u7d22\u5386\u53f2\u95ee\u9898..." />
         <div class="cghj-meta">
@@ -147,11 +278,30 @@
     document.body.appendChild(root);
 
     const refreshBtn = root.querySelector(".cghj-refresh");
+    const settingsBtn = root.querySelector(".cghj-settings-toggle");
+    const settingsPanel = root.querySelector(`#${SETTINGS_ID}`);
     const searchInput = root.querySelector(`#${SEARCH_ID}`);
     const toggleBtn = root.querySelector(`#${TOGGLE_ID}`);
 
+    applySettings(root);
+    syncSettingsControls(root);
+
     refreshBtn?.addEventListener("click", () => {
       refreshAll();
+    });
+
+    settingsBtn?.addEventListener("click", () => {
+      const isOpen = !settingsPanel?.hidden;
+      if (settingsPanel) settingsPanel.hidden = isOpen;
+      settingsBtn.setAttribute("aria-expanded", isOpen ? "false" : "true");
+    });
+
+    settingsPanel?.addEventListener("change", async (event) => {
+      const control = event.target;
+      if (!(control instanceof HTMLSelectElement)) return;
+      const key = control.getAttribute("data-cghj-setting");
+      if (!key || !(key in userSettings)) return;
+      await saveSettings({ ...userSettings, [key]: control.value });
     });
 
     searchInput?.addEventListener("input", () => {
@@ -174,6 +324,11 @@
     });
 
     syncToggleState(root, false);
+    loadSettings().then((settings) => {
+      userSettings = settings;
+      applySettings(root);
+      syncSettingsControls(root);
+    });
     return root;
   }
 
@@ -287,8 +442,8 @@
     }));
   }
 
-  function assignQuestionAnchor(el, idx) {
-    const id = `cghj-q-${idx + 1}`;
+  function assignQuestionAnchor(el, idx, existingId = "") {
+    const id = existingId || `cghj-q-${idx + 1}`;
     el.dataset.cghjQuestionId = id;
     return id;
   }
@@ -625,6 +780,65 @@
       });
   }
 
+  function createReplyHeadingEntry(candidate, questionId, indexKey, children = []) {
+    return {
+      id: assignHeadingAnchor(candidate.element, questionId, indexKey),
+      text: candidate.text,
+      short: shorten(candidate.text, PREVIEW_TEXT_LIMIT),
+      level: candidate.semanticLevel || 1,
+      element: candidate.element,
+      children,
+    };
+  }
+
+  function getCandidateRange(candidates, current, next) {
+    const start = candidates.indexOf(current);
+    const end = next ? candidates.indexOf(next) : candidates.length;
+    if (start < 0) return [];
+    return candidates.slice(start + 1, end < 0 ? candidates.length : end);
+  }
+
+  function getDirectChildCandidates(candidates, top, nextTop, bestTier) {
+    const sectionCandidates = getCandidateRange(candidates, top, nextTop);
+    const semanticChildren = sectionCandidates.filter(
+      (item) => item.semanticLevel && (!top.semanticLevel || item.semanticLevel > top.semanticLevel)
+    );
+    const childSemanticLevel = semanticChildren.length
+      ? Math.min(...semanticChildren.map((item) => item.semanticLevel))
+      : null;
+    const visualChildren = sectionCandidates.filter((item) => !item.semanticLevel && (item.tier || 3) > bestTier);
+    const childTier = visualChildren.length
+      ? Math.min(...visualChildren.map((item) => item.tier || 3))
+      : null;
+
+    return sectionCandidates.filter((item) => {
+      if (childSemanticLevel && item.semanticLevel === childSemanticLevel) return true;
+      return !item.semanticLevel && childTier && (item.tier || 3) === childTier;
+    });
+  }
+
+  function buildReplyHeadingTree(candidates, questionId) {
+    const bestTier = Math.min(...candidates.map((item) => item.tier || 3));
+    const tierCandidates = candidates.filter((item) => (item.tier || 3) === bestTier);
+    const semanticTopCandidates = tierCandidates.filter((item) => item.semanticLevel);
+    const topSemanticLevel = semanticTopCandidates.length
+      ? Math.min(...semanticTopCandidates.map((item) => item.semanticLevel))
+      : null;
+    const topCandidates = tierCandidates.filter((item) => {
+      if (item.semanticLevel) return item.semanticLevel === topSemanticLevel;
+      return true;
+    });
+
+    return topCandidates.map((top, idx) => {
+      const children = getDirectChildCandidates(candidates, top, topCandidates[idx + 1], bestTier)
+        .map((child, childIdx) =>
+          createReplyHeadingEntry(child, questionId, `${idx}-child-${childIdx}`)
+        );
+
+      return createReplyHeadingEntry(top, questionId, idx, children);
+    });
+  }
+
   function extractReplyHeadings(replyEl, questionId) {
     if (!(replyEl instanceof HTMLElement)) return [];
 
@@ -664,25 +878,7 @@
       dedupedCandidates.push(candidate);
     });
 
-    const bestTier = Math.min(...dedupedCandidates.map((item) => item.tier || 3));
-    const tierCandidates = dedupedCandidates.filter((item) => (item.tier || 3) === bestTier);
-    const bestTierFontSize = Math.max(...tierCandidates.map((item) => item.fontSize));
-    const bestTierScore = Math.max(...tierCandidates.map((item) => item.score));
-    const highestLevelCandidates = tierCandidates.filter((item) => {
-      if (item.semanticLevel) return true;
-      const sameVisualBand = Math.abs(item.fontSize - bestTierFontSize) <= 1.25;
-      const closeScore = item.score >= bestTierScore - 120;
-      return sameVisualBand || closeScore;
-    });
-
-    return highestLevelCandidates
-      .map((item, idx) => ({
-        id: assignHeadingAnchor(item.element, questionId, idx),
-        text: item.text,
-        short: shorten(item.text, PREVIEW_TEXT_LIMIT),
-        level: item.semanticLevel || 1,
-        element: item.element,
-      }));
+    return buildReplyHeadingTree(dedupedCandidates, questionId);
   }
 
   function updateCount() {
@@ -691,25 +887,52 @@
     if (countEl) countEl.textContent = String(questionItems.length);
   }
 
+  function flattenReplyHeadings(headings) {
+    return headings.flatMap((heading) => [
+      heading,
+      ...flattenReplyHeadings(heading.children || []),
+    ]);
+  }
+
+  function countChildReplyHeadings(headings) {
+    return headings.reduce(
+      (count, heading) => count + (heading.children?.length || 0) + countChildReplyHeadings(heading.children || []),
+      0
+    );
+  }
+
   function buildQuestionSignature(items) {
     return items
       .map((item) => {
-        const headings = item.replyHeadings
+        const headings = flattenReplyHeadings(item.replyHeadings)
           .map((heading) => `${heading.level}:${heading.text}`)
           .join("|");
         return [
           item.id,
+          item.conversationKey || "",
           item.text,
-          item.imageCount,
-          item.isLong ? 1 : 0,
-          headings,
-        ].join("~");
+        item.imageCount,
+      item.isLong ? 1 : 0,
+      item.isLoaded === false ? 0 : 1,
+      locatingQuestionId === item.id ? 1 : 0,
+      item.headingsLoaded ? 1 : 0,
+        headings,
+      ].join("~");
       })
       .join("||");
   }
 
-  function getQuestionCacheKey(text, index) {
-    return `${index}::${normalizeText(text)}`;
+  function getTurnCacheKey(userEl) {
+    const turn = userEl?.closest?.("[data-testid^='conversation-turn-']");
+    const turnId = turn?.getAttribute?.("data-testid");
+    return turnId ? `turn:${turnId}` : "";
+  }
+
+  function getQuestionCacheKey(userEl, text, imageCount) {
+    const turnKey = getTurnCacheKey(userEl);
+    const conversationKey = activeConversationKey || getConversationKey();
+    if (turnKey) return `${conversationKey}::${turnKey}`;
+    return `${conversationKey}::text:${normalizeText(text).toLowerCase()}::images:${imageCount}`;
   }
 
   function buildCachedHeadingEntries(headings) {
@@ -721,7 +944,44 @@
       element: heading.element instanceof HTMLElement && heading.element.isConnected
         ? heading.element
         : null,
+      children: buildCachedHeadingEntries(heading.children || []),
     }));
+  }
+
+  function getReplyHeadingSummary(item) {
+    if (!item.headingsLoaded) return "\u70b9\u51fb\u89e3\u6790\u56de\u590d\u6807\u9898";
+
+    const childCount = countChildReplyHeadings(item.replyHeadings);
+    return childCount
+      ? `${item.replyHeadings.length} \u4e2a\u4e00\u7ea7\u6807\u9898 · ${childCount} \u4e2a\u6b21\u7ea7`
+      : `${item.replyHeadings.length} \u4e2a\u56de\u590d\u6807\u9898`;
+  }
+
+  function markCachedQuestionsUnloaded() {
+    seenQuestionMap.forEach((item) => {
+      if (!(item.element instanceof HTMLElement && item.element.isConnected)) {
+        item.element = null;
+        item.replyElement = null;
+        item.isLoaded = false;
+        item.replyHeadings = buildCachedHeadingEntries(item.replyHeadings || []);
+        item.hasReplyHeadings = item.replyHeadings.length > 0;
+        item.headingsLoaded = !!item.headingsLoaded;
+      }
+    });
+  }
+
+  function getCachedQuestionItems() {
+    return [...seenQuestionMap.values()].sort((a, b) => a.index - b.index);
+  }
+
+  function renumberQuestionItems() {
+    getCachedQuestionItems().forEach((item, idx) => {
+      item.index = idx + 1;
+      if (item.element instanceof HTMLElement && item.element.isConnected) {
+        assignQuestionAnchor(item.element, idx, item.id);
+      }
+    });
+    nextQuestionIndex = seenQuestionMap.size + 1;
   }
 
   function mergeReplyHeadings(cacheKey, freshHeadings) {
@@ -757,12 +1017,25 @@
       short: previewText,
       level: 99,
       element: replyEl,
+      children: [],
     }];
   }
 
   function scanQuestions() {
+    if (!ensureConversationState()) return false;
+    if (Date.now() < conversationSwitchReadyAt) return false;
+
     const pairs = findConversationPairs();
-    const results = [];
+    markCachedQuestionsUnloaded();
+    const batchKeys = [];
+
+    // Build text\u2192existing item index for dedup with API-loaded items
+    const existingByText = new Map();
+    seenQuestionMap.forEach((item) => {
+      if (item.conversationKey === activeConversationKey && item.text) {
+        existingByText.set(normalizeText(item.text).toLowerCase(), item);
+      }
+    });
 
     pairs.forEach(({ userEl, replyEl }, idx) => {
       if (!(userEl instanceof HTMLElement)) return;
@@ -773,33 +1046,57 @@
 
       if (!shouldKeepAsQuestion(text, imageCount)) return;
 
-      const id = assignQuestionAnchor(userEl, idx);
-      const cacheKey = getQuestionCacheKey(text, results.length + 1);
-      const mergedHeadings = mergeReplyHeadings(
-        cacheKey,
-        extractReplyHeadings(replyEl, id)
-      );
-      const replyHeadings = mergedHeadings.length
-        ? mergedHeadings
-        : getReplyFallbackHeading(replyEl, id);
+      const cacheKey = getQuestionCacheKey(userEl, text, imageCount);
+      const textKey = normalizeText(text).toLowerCase();
+      const previous = seenQuestionMap.get(cacheKey) || existingByText.get(textKey);
+
+      // If an API-loaded entry matched by text with a different cache key,
+      // update it in-place to preserve the original cacheKey reference
+      // (locateAndJumpToQuestion holds a reference to the old cacheKey)
+      if (previous && previous.cacheKey !== cacheKey) {
+        previous.element = userEl;
+        previous.replyElement = replyEl instanceof HTMLElement ? replyEl : null;
+        previous.isLoaded = true;
+        previous.imageCount = imageCount;
+        previous.hasImage = imageCount > 0;
+        previous.hasReplyHeadings = previous.replyElement instanceof HTMLElement || previous.replyHeadings.length > 0;
+        batchKeys.push(previous.cacheKey);
+        assignQuestionAnchor(userEl, previous.index - 1, previous.id);
+        return;
+      }
+
+      batchKeys.push(cacheKey);
+      const index = previous?.index || nextQuestionIndex;
+      if (!previous) nextQuestionIndex += 1;
+
+      const id = assignQuestionAnchor(userEl, index - 1, previous?.id);
       const isLong = text.length > LONG_TEXT_THRESHOLD;
       const hasReply = replyEl instanceof HTMLElement;
+      const replyHeadings = buildCachedHeadingEntries(previous?.replyHeadings || []);
+      const headingsLoaded = !!previous?.headingsLoaded;
 
-      results.push({
+      seenQuestionMap.set(cacheKey, {
         id,
+        cacheKey,
+        conversationKey: activeConversationKey,
         text,
         short: shorten(text, PREVIEW_TEXT_LIMIT),
         element: userEl,
         replyElement: hasReply ? replyEl : null,
         replyHeadings,
-        hasReplyHeadings: hasReply && replyHeadings.length > 0,
-        index: results.length + 1,
+        hasReplyHeadings: hasReply || replyHeadings.length > 0,
+        headingsLoaded,
+        index,
         imageCount,
         hasImage: imageCount > 0,
         isLong,
+        isLoaded: true,
       });
     });
 
+    renumberQuestionItems();
+
+    const results = getCachedQuestionItems();
     const nextSignature = buildQuestionSignature(results);
     const changed = nextSignature !== lastQuestionSignature;
     questionItems = results;
@@ -823,6 +1120,240 @@
     return questionItems.filter((item) => item.text.toLowerCase().includes(keyword));
   }
 
+  function ensureReplyHeadings(item) {
+    if (!item || item.headingsLoaded) return !!item?.replyHeadings?.length;
+    if (!ensureConversationState()) return false;
+    if (item.conversationKey && item.conversationKey !== activeConversationKey) return false;
+    if (!(item.replyElement instanceof HTMLElement) || !item.replyElement.isConnected) return false;
+
+    const freshHeadings = extractReplyHeadings(item.replyElement, item.id);
+    const mergedHeadings = mergeReplyHeadings(item.cacheKey, freshHeadings);
+    const replyHeadings = mergedHeadings.length
+      ? mergedHeadings
+      : getReplyFallbackHeading(item.replyElement, item.id);
+
+    item.replyHeadings = replyHeadings;
+    item.hasReplyHeadings = replyHeadings.length > 0;
+    item.headingsLoaded = true;
+
+    if (item.cacheKey && seenQuestionMap.has(item.cacheKey)) {
+      const cachedItem = seenQuestionMap.get(item.cacheKey);
+      cachedItem.replyHeadings = replyHeadings;
+      cachedItem.hasReplyHeadings = item.hasReplyHeadings;
+      cachedItem.headingsLoaded = true;
+    }
+
+    return replyHeadings.length > 0;
+  }
+
+  function cancelHeadingWarmup() {
+    if (!headingWarmupTimer) return;
+    clearTimeout(headingWarmupTimer);
+    headingWarmupTimer = null;
+  }
+
+  function scheduleHeadingWarmup() {
+    cancelHeadingWarmup();
+    if (locatingQuestionId || Date.now() < conversationSwitchReadyAt) return;
+
+    headingWarmupTimer = setTimeout(() => {
+      headingWarmupTimer = null;
+      if (locatingQuestionId || !ensureConversationState()) return;
+
+      let parsedCount = 0;
+      const loadedItems = getCachedQuestionItems().filter(
+        (item) =>
+          !item.headingsLoaded &&
+          item.replyElement instanceof HTMLElement &&
+          item.replyElement.isConnected &&
+          item.conversationKey === activeConversationKey
+      );
+
+      for (const item of loadedItems) {
+        if (parsedCount >= HEADING_WARMUP_LIMIT) break;
+        ensureReplyHeadings(item);
+        parsedCount += 1;
+      }
+
+      if (parsedCount > 0) {
+        renderList(true);
+        rebuildIntersectionObserver();
+      }
+    }, HEADING_WARMUP_DELAY);
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    });
+  }
+
+  function getConversationScrollContainer() {
+    const main = document.querySelector("main");
+    let node = main;
+
+    while (node instanceof HTMLElement && node !== document.body) {
+      const style = getComputedStyle(node);
+      const canScroll = /(auto|scroll)/.test(style.overflowY) &&
+        node.scrollHeight > node.clientHeight + 80;
+      if (canScroll) return node;
+      node = node.parentElement;
+    }
+
+    return document.scrollingElement || document.documentElement;
+  }
+
+  function getScrollTop(scroller) {
+    return scroller === document.body || scroller === document.documentElement
+      ? window.scrollY || scroller.scrollTop || 0
+      : scroller.scrollTop;
+  }
+
+  function setScrollTop(scroller, top) {
+    if (scroller === document.body || scroller === document.documentElement) {
+      window.scrollTo({ top, behavior: "auto" });
+      return;
+    }
+    scroller.scrollTop = top;
+  }
+
+  function getMaxScrollTop(scroller) {
+    const scrollHeight = scroller === document.body || scroller === document.documentElement
+      ? Math.max(document.documentElement.scrollHeight, document.body.scrollHeight)
+      : scroller.scrollHeight;
+    const clientHeight = scroller === document.body || scroller === document.documentElement
+      ? window.innerHeight
+      : scroller.clientHeight;
+    return Math.max(0, scrollHeight - clientHeight);
+  }
+
+  function getScrollStep(scroller) {
+    const clientHeight = scroller === document.body || scroller === document.documentElement
+      ? window.innerHeight
+      : scroller.clientHeight;
+    return Math.max(420, Math.floor(clientHeight * 0.82));
+  }
+
+  function getItemByCacheKey(cacheKey) {
+    return cacheKey ? seenQuestionMap.get(cacheKey) || null : null;
+  }
+
+  function isItemLoaded(item) {
+    return !!(item?.element instanceof HTMLElement && item.element.isConnected);
+  }
+
+  async function tryLocateQuestionInDirection(item, scroller, direction, scanKey) {
+    let stableSteps = 0;
+    let previousTop = -1;
+
+    for (let step = 0; step < LOCATE_MAX_STEPS; step += 1) {
+      if (scanKey !== getConversationKey()) return null;
+
+      runRefreshAll();
+      const latest = getItemByCacheKey(item.cacheKey);
+      if (isItemLoaded(latest)) return latest;
+
+      const currentTop = getScrollTop(scroller);
+      const maxTop = getMaxScrollTop(scroller);
+      if ((direction < 0 && currentTop <= 4) || (direction > 0 && currentTop >= maxTop - 4)) {
+        break;
+      }
+
+      const nextTop = direction < 0
+        ? Math.max(0, currentTop - getScrollStep(scroller))
+        : Math.min(maxTop, currentTop + getScrollStep(scroller));
+      setScrollTop(scroller, nextTop);
+      await sleep(LOCATE_SCAN_DELAY);
+
+      const afterTop = getScrollTop(scroller);
+      stableSteps = Math.abs(afterTop - previousTop) < 2 ? stableSteps + 1 : 0;
+      previousTop = afterTop;
+      if (stableSteps >= 6) break;
+    }
+
+    return null;
+  }
+
+  async function locateAndJumpToQuestion(item) {
+    if (!item?.cacheKey || locatingQuestionId) return;
+    if (!ensureConversationState()) return;
+
+    locatingQuestionId = item.id;
+    activeQuestionId = item.id;
+    renderList(true);
+
+    const scroller = getConversationScrollContainer();
+    const originalTop = getScrollTop(scroller);
+    const scanKey = activeConversationKey;
+
+    try {
+      // If we have API positional data, jump directly to proportional position
+      if (typeof item.apiIndex === "number" && item.apiTotal > 0) {
+        const maxTop = getMaxScrollTop(scroller);
+        const ratio = item.apiIndex / item.apiTotal;
+        const targetTop = Math.floor(ratio * maxTop);
+        console.log(`[CGHJ] proportional scroll: apiIndex=${item.apiIndex}/${item.apiTotal} ratio=${ratio.toFixed(2)} target=${targetTop}/${maxTop}`);
+        setScrollTop(scroller, Math.min(targetTop, maxTop));
+
+        // Wait for virtual scroller to render, polling up to 3s
+        for (let i = 0; i < 10; i++) {
+          await sleep(300);
+          if (scanKey !== getConversationKey()) return null;
+          runRefreshAll();
+          const latest = getItemByCacheKey(item.cacheKey);
+          if (i === 0) {
+            console.log(`[CGHJ] poll #${i}: cacheKey=${item.cacheKey} inMap=${!!latest} isLoaded=${isItemLoaded(latest)} mapSize=${seenQuestionMap.size}`);
+          }
+          if (isItemLoaded(latest)) {
+            console.log(`[CGHJ] item found after ${(i + 1) * 300}ms wait`);
+            activeQuestionId = latest.id;
+            jumpToElement(latest.element);
+            return;
+          }
+        }
+
+        // If still not found, try nudging scroll slightly (virtual scroller may need position change)
+        const nudgeOffsets = [-200, 200, -500, 500];
+        for (const offset of nudgeOffsets) {
+          setScrollTop(scroller, Math.min(Math.max(0, targetTop + offset), maxTop));
+          await sleep(400);
+          if (scanKey !== getConversationKey()) return null;
+          runRefreshAll();
+          const latest = getItemByCacheKey(item.cacheKey);
+          if (isItemLoaded(latest)) {
+            console.log(`[CGHJ] item found with nudge offset ${offset}`);
+            activeQuestionId = latest.id;
+            jumpToElement(latest.element);
+            return;
+          }
+        }
+
+        // Restore to target position
+        setScrollTop(scroller, Math.min(targetTop, maxTop));
+        console.log("[CGHJ] proportional scroll + nudges failed, falling back to step search");
+      }
+
+      // Fallback: step-by-step search from current position
+      const totalCount = questionItems.length;
+      const isLowerHalf = item.index <= Math.ceil(totalCount / 2);
+      const firstDir = isLowerHalf ? -1 : 1;
+      const secondDir = -firstDir;
+      const foundFirst = await tryLocateQuestionInDirection(item, scroller, firstDir, scanKey);
+      const found = foundFirst || await tryLocateQuestionInDirection(item, scroller, secondDir, scanKey);
+
+      if (found && isItemLoaded(found)) {
+        activeQuestionId = found.id;
+        jumpToElement(found.element);
+        return;
+      }
+
+      setScrollTop(scroller, Math.min(originalTop, getMaxScrollTop(scroller)));
+    } finally {
+      locatingQuestionId = null;
+      runRefreshAll();
+    }
+  }
+
   function jumpToElement(el) {
     if (!(el instanceof HTMLElement)) return;
     el.style.scrollMarginTop = `${SCROLL_TOP_OFFSET}px`;
@@ -834,7 +1365,13 @@
   }
 
   function jumpToQuestion(item) {
-    if (!item?.element) return;
+    if (!(item?.element instanceof HTMLElement) || !item.element.isConnected) {
+      activeQuestionId = item?.id || activeQuestionId;
+      updateActiveListState();
+      renderList(true);
+      locateAndJumpToQuestion(item);
+      return;
+    }
     activeQuestionId = item.id;
     updateActiveListState();
     jumpToElement(item.element);
@@ -893,6 +1430,7 @@
 
   function createReplyExpandButton(item, isExpanded) {
     const expandBtn = document.createElement("button");
+    const headingSummary = getReplyHeadingSummary(item);
     expandBtn.type = "button";
     expandBtn.className = `cghj-tool cghj-outline-toggle${isExpanded ? " expanded" : ""}`;
     expandBtn.setAttribute("aria-expanded", isExpanded ? "true" : "false");
@@ -902,7 +1440,7 @@
     );
     expandBtn.setAttribute(
       "title",
-      `${isExpanded ? "\u6536\u8d77" : "\u5c55\u5f00"}\u56de\u590d\u6807\u9898 (${item.replyHeadings.length})`
+      `${isExpanded ? "\u6536\u8d77" : "\u5c55\u5f00"}\u56de\u590d\u6807\u9898 (${headingSummary})`
     );
     expandBtn.textContent = "#";
     expandBtn.addEventListener("click", (event) => {
@@ -910,6 +1448,7 @@
       if (expandedReplyHeadingIds.has(item.id)) {
         expandedReplyHeadingIds.delete(item.id);
       } else {
+        ensureReplyHeadings(item);
         expandedReplyHeadingIds.add(item.id);
       }
       renderList();
@@ -920,16 +1459,26 @@
   function createHeadingPreview(item) {
     const panel = document.createElement("div");
     panel.className = "cghj-heading-panel";
+    ensureReplyHeadings(item);
 
     const meta = document.createElement("div");
     meta.className = "cghj-heading-meta";
-    meta.textContent = `\u56de\u590d\u6807\u9898 (${item.replyHeadings.length})`;
+    const childCount = countChildReplyHeadings(item.replyHeadings);
+    meta.textContent = childCount
+      ? `\u4e00\u7ea7\u6807\u9898 (${item.replyHeadings.length}) · \u6b21\u7ea7\u6807\u9898 (${childCount})`
+      : `\u56de\u590d\u6807\u9898 (${item.replyHeadings.length})`;
     panel.appendChild(meta);
 
     const list = document.createElement("div");
     list.className = "cghj-heading-list";
 
     item.replyHeadings.forEach((heading, idx) => {
+      const group = document.createElement("div");
+      group.className = "cghj-heading-group";
+
+      const row = document.createElement("div");
+      row.className = "cghj-heading-row";
+
       const headingBtn = document.createElement("button");
       headingBtn.type = "button";
       headingBtn.className = "cghj-heading-link";
@@ -948,7 +1497,66 @@
       order.textContent = String(idx + 1);
 
       headingBtn.append(text, order);
-      list.appendChild(headingBtn);
+      row.appendChild(headingBtn);
+
+      if (heading.children?.length) {
+        const childToggle = document.createElement("button");
+        const isChildExpanded = expandedChildHeadingIds.has(heading.id);
+        childToggle.type = "button";
+        childToggle.className = `cghj-heading-child-toggle${isChildExpanded ? " expanded" : ""}`;
+        childToggle.setAttribute("aria-expanded", isChildExpanded ? "true" : "false");
+        childToggle.setAttribute(
+          "aria-label",
+          isChildExpanded ? "\u6536\u8d77\u6b21\u7ea7\u6807\u9898" : "\u5c55\u5f00\u6b21\u7ea7\u6807\u9898"
+        );
+        childToggle.setAttribute(
+          "title",
+          `${isChildExpanded ? "\u6536\u8d77" : "\u5c55\u5f00"}\u6b21\u7ea7\u6807\u9898 (${heading.children.length})`
+        );
+        childToggle.textContent = isChildExpanded ? "-" : "+";
+        childToggle.addEventListener("click", (event) => {
+          event.stopPropagation();
+          if (expandedChildHeadingIds.has(heading.id)) {
+            expandedChildHeadingIds.delete(heading.id);
+          } else {
+            expandedChildHeadingIds.add(heading.id);
+          }
+          renderList();
+        });
+        row.appendChild(childToggle);
+
+        if (isChildExpanded) {
+          const childList = document.createElement("div");
+          childList.className = "cghj-child-heading-list";
+
+          heading.children.forEach((child, childIdx) => {
+            const childBtn = document.createElement("button");
+            childBtn.type = "button";
+            childBtn.className = "cghj-heading-link cghj-child-heading-link";
+            childBtn.setAttribute("title", child.text);
+            childBtn.addEventListener("click", (event) => {
+              event.stopPropagation();
+              jumpToHeading(item, child);
+            });
+
+            const childText = document.createElement("span");
+            childText.className = "cghj-heading-text";
+            childText.textContent = child.short;
+
+            const childOrder = document.createElement("span");
+            childOrder.className = "cghj-heading-order";
+            childOrder.textContent = `${idx + 1}.${childIdx + 1}`;
+
+            childBtn.append(childText, childOrder);
+            childList.appendChild(childBtn);
+          });
+
+          group.appendChild(childList);
+        }
+      }
+
+      group.prepend(row);
+      list.appendChild(group);
     });
 
     panel.appendChild(list);
@@ -964,11 +1572,13 @@
     const keyword = root.querySelector(`#${SEARCH_ID}`)?.value?.trim().toLowerCase() || "";
     const expandedQuestionState = [...expandedQuestionIds].sort().join("|");
     const expandedReplyState = [...expandedReplyHeadingIds].sort().join("|");
+    const expandedChildState = [...expandedChildHeadingIds].sort().join("|");
     const renderSignature = [
       keyword,
       activeQuestionId || "",
       expandedQuestionState,
       expandedReplyState,
+      expandedChildState,
       ...items.map((item) => `${item.id}:${item.replyHeadings.length}`),
     ].join("::");
 
@@ -988,7 +1598,7 @@
       const isReplyExpanded = expandedReplyHeadingIds.has(item.id);
 
       const card = document.createElement("div");
-      card.className = `cghj-item${item.id === activeQuestionId ? " active" : ""}`;
+      card.className = `cghj-item${item.id === activeQuestionId ? " active" : ""}${item.isLoaded === false ? " unloaded" : ""}${locatingQuestionId === item.id ? " locating" : ""}`;
       card.dataset.questionId = item.id;
 
       const row = document.createElement("div");
@@ -997,6 +1607,12 @@
       const mainBtn = document.createElement("button");
       mainBtn.type = "button";
       mainBtn.className = "cghj-main";
+      if (item.isLoaded === false) {
+        mainBtn.setAttribute(
+          "title",
+          "\u8be5\u95ee\u9898\u6682\u672a\u5728\u5f53\u524d\u9875\u9762 DOM \u4e2d\u52a0\u8f7d\uff0c\u70b9\u51fb\u540e\u4f1a\u5c1d\u8bd5\u6eda\u52a8\u627e\u56de\u5e76\u8df3\u8f6c\u3002"
+        );
+      }
       mainBtn.addEventListener("pointerdown", (event) => {
         if (event.button !== 0) return;
         event.preventDefault();
@@ -1030,11 +1646,11 @@
         contentEl.appendChild(badgeEl);
       }
 
-      if (item.hasReplyHeadings) {
-        const summaryEl = document.createElement("span");
-        summaryEl.className = "cghj-outline-summary";
-        summaryEl.textContent = `${item.replyHeadings.length} \u4e2a\u56de\u590d\u6807\u9898`;
-        contentEl.appendChild(summaryEl);
+      if (item.isLoaded === false) {
+        const unloadedEl = document.createElement("span");
+        unloadedEl.className = "cghj-state-badge";
+        unloadedEl.textContent = locatingQuestionId === item.id ? "\u5b9a\u4f4d\u4e2d" : "\u672a\u52a0\u8f7d";
+        contentEl.appendChild(unloadedEl);
       }
 
       mainBtn.append(indexEl, contentEl);
@@ -1093,7 +1709,7 @@
         activeIo.observe(item.element);
       }
 
-      item.replyHeadings.forEach((heading) => {
+      flattenReplyHeadings(item.replyHeadings).forEach((heading) => {
         if (heading.element instanceof HTMLElement) {
           activeIo.observe(heading.element);
         }
@@ -1101,12 +1717,16 @@
     });
   }
 
-  const refreshAll = debounce(() => {
+  function runRefreshAll() {
     ensureRoot();
+    ensureConversationState();
     const changed = scanQuestions();
     renderList(changed);
     rebuildIntersectionObserver();
-  }, 250);
+    scheduleHeadingWarmup();
+  }
+
+  const refreshAll = debounce(runRefreshAll, 250);
 
   function isRelevantMutationNode(node) {
     if (!(node instanceof HTMLElement)) return false;
@@ -1163,18 +1783,16 @@
   }
 
   function handleUrlChange() {
-    if (location.href === lastKnownHref) return;
-    lastKnownHref = location.href;
-    lastQuestionSignature = "";
-    lastRenderSignature = "";
-    activeQuestionId = null;
-    expandedQuestionIds.clear();
-    expandedReplyHeadingIds.clear();
-    cachedReplyHeadingMap.clear();
+    const nextKey = getConversationKey();
+    if (location.href === lastKnownHref && nextKey === activeConversationKey) return;
 
+    resetConversationState(nextKey, true);
     setTimeout(() => {
       refreshAll();
-    }, 300);
+    }, 1800);
+    setTimeout(async () => {
+      await loadConversationFromApi();
+    }, 3500);
   }
 
   function installUrlWatcher() {
@@ -1200,6 +1818,98 @@
     window.addEventListener("hashchange", handleUrlChange);
   }
 
+  async function loadConversationFromApi() {
+    if (!window.__cghjApi) return false;
+    if (!ensureConversationState()) return false;
+
+    try {
+      const result = await window.__cghjApi.loadFullConversation();
+      if (!result?.messages?.length) return false;
+
+      const conversationKey = activeConversationKey || getConversationKey();
+
+      // Build text→existing DOM item index for preserving element references
+      const domItemsByText = new Map();
+      seenQuestionMap.forEach((item) => {
+        if (item.conversationKey === conversationKey && item.text && item.element instanceof HTMLElement && item.element.isConnected) {
+          domItemsByText.set(normalizeText(item.text).toLowerCase(), item);
+        }
+      });
+
+      // Clear and rebuild from API
+      seenQuestionMap.clear();
+      nextQuestionIndex = 1;
+
+      const batchKeys = [];
+      const apiUserMessages = result.messages.filter((m) => m.role === "user");
+      const apiUserTotal = apiUserMessages.length;
+      let filteredOut = 0;
+
+      result.messages.forEach((msg) => {
+        if (msg.role !== "user") return;
+
+        const text = normalizeQuestionText(msg.text);
+        if (!shouldKeepAsQuestion(text, 0)) {
+          filteredOut++;
+          console.log(`[CGHJ] filtered out user msg: "${text.slice(0, 60)}..." len=${text.length}`);
+          return;
+        }
+
+        const textKey = normalizeText(text).toLowerCase();
+        const domItem = domItemsByText.get(textKey);
+        const cacheKey = domItem?.cacheKey || `${conversationKey}::api:${msg.id}`;
+        batchKeys.push(cacheKey);
+
+        const index = nextQuestionIndex;
+        nextQuestionIndex += 1;
+        const id = `cghj-q-${index}`;
+
+        seenQuestionMap.set(cacheKey, {
+          id,
+          cacheKey,
+          conversationKey,
+          text,
+          short: shorten(text, PREVIEW_TEXT_LIMIT),
+          element: domItem?.element || null,
+          replyElement: domItem?.replyElement || null,
+          replyHeadings: domItem?.replyHeadings || [],
+          hasReplyHeadings: domItem ? domItem.hasReplyHeadings : true,
+          headingsLoaded: domItem ? domItem.headingsLoaded : false,
+          index,
+          imageCount: domItem?.imageCount || 0,
+          hasImage: domItem?.hasImage || false,
+          isLong: text.length > LONG_TEXT_THRESHOLD,
+          isLoaded: !!domItem,
+          source: domItem ? "merged" : "api",
+          apiIndex: index - 1,
+          apiTotal: apiUserTotal,
+        });
+      });
+
+      console.log(`[CGHJ] API load complete: ${apiUserTotal} user messages from API, ${filteredOut} filtered, ${seenQuestionMap.size} in map`);
+
+      renumberQuestionItems();
+
+      const results = getCachedQuestionItems();
+      const nextSignature = buildQuestionSignature(results);
+      const changed = nextSignature !== lastQuestionSignature;
+      questionItems = results;
+      lastQuestionSignature = nextSignature;
+
+      if (!questionItems.some((item) => item.id === activeQuestionId)) {
+        activeQuestionId = questionItems[0]?.id || null;
+      }
+
+      updateCount();
+      renderList(true);
+      rebuildIntersectionObserver();
+      return true;
+    } catch (err) {
+      console.warn("[CGHJ] loadConversationFromApi failed:", err);
+      return false;
+    }
+  }
+
   function waitForAppReady() {
     const tryInit = () => {
       const main = document.querySelector("main");
@@ -1212,6 +1922,9 @@
       refreshAll();
       installPageObserver();
       installUrlWatcher();
+      setTimeout(async () => {
+        await loadConversationFromApi();
+      }, 2500);
     };
 
     tryInit();

@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "ChatGPT History Jump",
   "short_name": "History Jump",
-  "version": "0.2.25",
-  "description": "在 ChatGPT 会话页面右侧生成历史问题目录，支持快速定位和跳转。",
+  "version": "3.0.0",
+  "description": "Add a searchable history panel to ChatGPT conversations for quick navigation.",
   "icons": {
     "16": "icon_16.png",
     "32": "icon_32.png",
@@ -24,6 +24,7 @@
         "https://chat.openai.com/*"
       ],
       "js": [
+        "api.js",
         "content.js"
       ],
       "css": [
