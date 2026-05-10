@@ -50,7 +50,7 @@
     if (!["left", "right"].includes(next.side)) next.side = DEFAULT_SETTINGS.side;
     if (!["narrow", "standard", "wide"].includes(next.width)) next.width = DEFAULT_SETTINGS.width;
     if (!["comfortable", "compact"].includes(next.density)) next.density = DEFAULT_SETTINGS.density;
-    if (!["system", "light", "dark"].includes(next.theme)) next.theme = DEFAULT_SETTINGS.theme;
+    if (!["system", "light", "dark", "chatgpt", "girl-pink"].includes(next.theme)) next.theme = DEFAULT_SETTINGS.theme;
     if (typeof next.stickyExpanded !== "boolean") next.stickyExpanded = DEFAULT_SETTINGS.stickyExpanded;
     return next;
   }
@@ -66,6 +66,8 @@
     root.classList.toggle("cghj-theme-system", userSettings.theme === "system");
     root.classList.toggle("cghj-theme-light", userSettings.theme === "light");
     root.classList.toggle("cghj-theme-dark", userSettings.theme === "dark");
+    root.classList.toggle("cghj-theme-chatgpt", userSettings.theme === "chatgpt");
+    root.classList.toggle("cghj-theme-girl-pink", userSettings.theme === "girl-pink");
   }
 
   function syncToggleState(root, collapsed) {
@@ -273,6 +275,8 @@
               <option value="system">\u8ddf\u968f\u7cfb\u7edf</option>
               <option value="light">\u6d45\u8272</option>
               <option value="dark">\u6df1\u8272</option>
+              <option value="chatgpt">\u9002\u5e94GPT</option>
+              <option value="girl-pink">\u5c11\u5973\u7c89</option>
             </select>
           </label>
           <label class="cghj-setting-row">

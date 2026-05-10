@@ -16,7 +16,7 @@ For Chinese documentation, see [README_CN.md](./README_CN.md).
 - Preserves Markdown `#` heading levels from API replies so `##` and `###` sections stay correctly nested
 - Adds a line-based heading pass so older replies with plain text section titles are still recognized
 - Remembers panel collapsed state per conversation
-- Lets you customize panel side, width, density, and theme locally
+- Lets you customize panel side, width, density, and theme locally, including ChatGPT-adaptive dark and pink themes
 - Parses reply headings lazily when opened so long conversations index faster
 - Clears and guards cached questions/headings when switching conversations
 - Attempts to restore unloaded cached prompts by scrolling before jumping to them
@@ -134,10 +134,12 @@ When changing behavior or UI, also update the README files and bump the extensio
 
 ## Version
 
-Current version: `v3.2.2`
+Current version: `v3.2.4`
 
 ### Changelog
 
+- **3.2.4** — Fold pink theme behavior and styles into the main extension files
+- **3.2.3** — Add a separate ChatGPT-adaptive dark theme while preserving the original dark theme
 - **3.2.2** — Simplify API reply heading parsing to raw Markdown headings only
 - **3.2.1** — Prefer raw Markdown heading levels from API replies when building reply heading previews
 - **3.2.0** — Only lock the last expanded item, fixing visual glitches with multiple expanded items
