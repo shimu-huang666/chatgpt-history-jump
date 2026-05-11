@@ -988,13 +988,34 @@
     });
   }
 
+  function resolveHeadingElementFromCandidate(candidate) {
+    const el = candidate.element;
+    if (!(el instanceof HTMLElement)) return el;
+
+    if (candidate.semanticLevel) return el;
+
+    const tag = el.tagName;
+    if (tag === "H1" || tag === "H2" || tag === "H3" || tag === "H4" || tag === "H5" || tag === "H6") {
+      return el;
+    }
+
+    const innerHeading = el.querySelector("h1, h2, h3, h4, h5, h6");
+    if (innerHeading instanceof HTMLElement) return innerHeading;
+
+    const innerStrong = el.querySelector("strong, b");
+    if (innerStrong instanceof HTMLElement) return innerStrong;
+
+    return el;
+  }
+
   function createReplyHeadingEntry(candidate, questionId, indexKey, children = []) {
+    const resolvedElement = resolveHeadingElementFromCandidate(candidate);
     return {
-      id: assignHeadingAnchor(candidate.element, questionId, indexKey),
+      id: assignHeadingAnchor(resolvedElement, questionId, indexKey),
       text: candidate.text,
       short: shorten(candidate.text, PREVIEW_TEXT_LIMIT),
       level: candidate.semanticLevel || 1,
-      element: candidate.element,
+      element: resolvedElement,
       children,
     };
   }
@@ -1354,7 +1375,12 @@
   function ensureReplyHeadings(item) {
     if (!item) return false;
     if (item.headingsLoaded && !hasOnlyFallbackReplyHeading(item.replyHeadings)) {
-      return !!item.replyHeadings?.length;
+      const allElementsNull = item.replyHeadings?.length > 0 &&
+        item.replyHeadings.every((h) => !h.element);
+      const replyAvailable = item.replyElement instanceof HTMLElement && item.replyElement.isConnected;
+      if (!allElementsNull || !replyAvailable) {
+        return !!item.replyHeadings?.length;
+      }
     }
     if (!ensureConversationState()) return false;
     if (item.conversationKey && item.conversationKey !== activeConversationKey) return false;
@@ -1649,12 +1675,32 @@
       return;
     }
 
-    if (!heading?.element) return;
-    activeQuestionId = item.id;
-    locatingQuestionId = item.id;
-    updateActiveListState();
-    jumpToElement(heading.element);
-    setTimeout(() => { locatingQuestionId = null; }, 600);
+    if (item?.element instanceof HTMLElement && item.element.isConnected) {
+      activeQuestionId = item.id;
+      locatingQuestionId = item.id;
+      updateActiveListState();
+      jumpToElement(item.element);
+
+      setTimeout(() => {
+        if (item.replyElement instanceof HTMLElement && item.replyElement.isConnected) {
+          const resolved = findConnectedHeadingElementByText(item.replyElement, heading?.text);
+          if (resolved) {
+            heading.element = resolved;
+            jumpToElement(resolved);
+          }
+        }
+        locatingQuestionId = null;
+      }, 300);
+      return;
+    }
+
+    if (heading?.element) {
+      activeQuestionId = item.id;
+      locatingQuestionId = item.id;
+      updateActiveListState();
+      jumpToElement(heading.element);
+      setTimeout(() => { locatingQuestionId = null; }, 600);
+    }
   }
 
   function updateActiveListState() {

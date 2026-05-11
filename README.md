@@ -134,10 +134,11 @@ When changing behavior or UI, also update the README files and bump the extensio
 
 ## Version
 
-Current version: `v3.2.6`
+Current version: `v3.2.7`
 
 ### Changelog
 
+- **3.2.7** — Fix reply headings jumping to reply container instead of the actual heading element inside it
 - **3.2.6** — Remove "Sticky expanded" feature, simplify settings panel
 - **3.2.5** — Fix card layout overflow when width is set to narrow; expand buttons no longer get pushed out
 - **3.2.4** — Fold pink theme behavior and styles into the main extension files
