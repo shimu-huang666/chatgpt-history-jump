@@ -286,6 +286,7 @@
               <img class="cghj-support-qr" src="${supportQrUrl}" alt="\u5fae\u4fe1\u652f\u4ed8" loading="lazy" />
             </div>
             <button type="button" class="cghj-repo-link">\u5b98\u65b9\u4ed3\u5e93</button>
+            <button type="button" class="cghj-tease-author">\u62f7\u6253\u4f5c\u8005</button>
           </div>
         </div>
         <input id="${SEARCH_ID}" type="text" placeholder="搜索历史对话..." />
@@ -306,6 +307,7 @@
     const supportBtn = root.querySelector(".cghj-support-toggle");
     const supportPanel = root.querySelector(".cghj-support-panel");
     const repoBtn = root.querySelector(".cghj-repo-link");
+    const teaseAuthorBtn = root.querySelector(".cghj-tease-author");
     const searchInput = root.querySelector(`#${SEARCH_ID}`);
     const toggleBtn = root.querySelector(`#${TOGGLE_ID}`);
 
@@ -337,6 +339,10 @@
 
     repoBtn?.addEventListener("click", () => {
       window.open(OFFICIAL_REPO_URL, "_blank", "noopener,noreferrer");
+    });
+
+    teaseAuthorBtn?.addEventListener("click", () => {
+      window.alert("\u4f60\u60f3\u591a\u4e86");
     });
 
     settingsPanel?.addEventListener("change", async (event) => {

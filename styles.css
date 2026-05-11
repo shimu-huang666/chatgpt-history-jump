@@ -454,14 +454,16 @@
 
 .cghj-author-line,
 .cghj-support-toggle,
-.cghj-repo-link {
+.cghj-repo-link,
+.cghj-tease-author {
   font-size: 12px;
   color: var(--cghj-muted);
 }
 
 .cghj-author-line span,
 .cghj-support-toggle,
-.cghj-repo-link {
+.cghj-repo-link,
+.cghj-tease-author {
   font-weight: 700;
   color: var(--cghj-text);
 }
@@ -471,7 +473,8 @@
 }
 
 .cghj-support-toggle,
-.cghj-repo-link {
+.cghj-repo-link,
+.cghj-tease-author {
   width: 100%;
   border: 1px solid var(--cghj-panel-border);
   border-radius: 8px;
@@ -483,12 +486,14 @@
 
 .cghj-support-toggle:hover,
 .cghj-support-toggle[aria-expanded="true"],
-.cghj-repo-link:hover {
+.cghj-repo-link:hover,
+.cghj-tease-author:hover {
   border-color: rgba(37, 99, 235, 0.35);
   color: var(--cghj-accent);
 }
 
-.cghj-repo-link {
+.cghj-repo-link,
+.cghj-tease-author {
   margin-top: 8px;
 }
 
