@@ -134,10 +134,12 @@ When changing behavior or UI, also update the README files and bump the extensio
 
 ## Version
 
-Current version: `v3.2.7`
+Current version: `v3.2.11`
 
 ### Changelog
 
+- **3.2.11** — Trust API Markdown reply headings and avoid mixing in DOM visual heading false positives
+- **3.2.10** — Keep reply heading expand buttons inside narrow panels by letting heading rows reserve space for the toggle
 - **3.2.7** — Fix reply headings jumping to reply container instead of the actual heading element inside it
 - **3.2.6** — Remove "Sticky expanded" feature, simplify settings panel
 - **3.2.5** — Fix card layout overflow when width is set to narrow; expand buttons no longer get pushed out

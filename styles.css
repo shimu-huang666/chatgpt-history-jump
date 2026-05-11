@@ -712,6 +712,7 @@
   display: flex;
   align-items: stretch;
   gap: 6px;
+  min-width: 0;
 }
 
 .cghj-heading-link {
@@ -727,6 +728,12 @@
   cursor: pointer;
   text-align: left;
   transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.cghj-heading-row > .cghj-heading-link {
+  flex: 1;
+  min-width: 0;
+  width: auto;
 }
 
 .cghj-heading-link:hover {

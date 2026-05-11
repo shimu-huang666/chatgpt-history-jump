@@ -935,6 +935,12 @@
     return headings?.length === 1 && isFallbackReplyHeading(headings[0]);
   }
 
+  function hasMarkdownReplyHeadings(headings) {
+    return (headings || []).some(
+      (heading) => heading?.source === "markdown" || hasMarkdownReplyHeadings(heading.children)
+    );
+  }
+
   function extractReplyHeadingsFromText(replyText, questionId) {
     const seenTexts = new Set();
     const candidates = String(replyText || "").split(/\n+/).map((line) => {
@@ -1179,6 +1185,7 @@
       element: heading.element instanceof HTMLElement && heading.element.isConnected
         ? heading.element
         : null,
+      source: heading.source || null,
       children: buildCachedHeadingEntries(heading.children || []),
     }));
   }
@@ -1375,6 +1382,10 @@
   function ensureReplyHeadings(item) {
     if (!item) return false;
     if (item.headingsLoaded && !hasOnlyFallbackReplyHeading(item.replyHeadings)) {
+      if (hasMarkdownReplyHeadings(item.replyHeadings)) {
+        return !!item.replyHeadings?.length;
+      }
+
       const allElementsNull = item.replyHeadings?.length > 0 &&
         item.replyHeadings.every((h) => !h.element);
       const replyAvailable = item.replyElement instanceof HTMLElement && item.replyElement.isConnected;
