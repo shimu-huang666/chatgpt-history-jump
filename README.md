@@ -134,10 +134,11 @@ When changing behavior or UI, also update the README files and bump the extensio
 
 ## Version
 
-Current version: `v3.2.11`
+Current version: `v3.2.12`
 
 ### Changelog
 
+- **3.2.12** — Remove reply heading order numbers and keep only child heading expand controls
 - **3.2.11** — Trust API Markdown reply headings and avoid mixing in DOM visual heading false positives
 - **3.2.10** — Keep reply heading expand buttons inside narrow panels by letting heading rows reserve space for the toggle
 - **3.2.7** — Fix reply headings jumping to reply container instead of the actual heading element inside it

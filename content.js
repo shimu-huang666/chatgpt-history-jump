@@ -1809,11 +1809,7 @@
       text.className = "cghj-heading-text";
       text.textContent = heading.short;
 
-      const order = document.createElement("span");
-      order.className = "cghj-heading-order";
-      order.textContent = String(idx + 1);
-
-      headingBtn.append(text, order);
+      headingBtn.appendChild(text);
       row.appendChild(headingBtn);
 
       if (heading.children?.length) {
@@ -1846,7 +1842,7 @@
           const childList = document.createElement("div");
           childList.className = "cghj-child-heading-list";
 
-          heading.children.forEach((child, childIdx) => {
+          heading.children.forEach((child) => {
             const childBtn = document.createElement("button");
             childBtn.type = "button";
             childBtn.className = "cghj-heading-link cghj-child-heading-link";
@@ -1860,11 +1856,7 @@
             childText.className = "cghj-heading-text";
             childText.textContent = child.short;
 
-            const childOrder = document.createElement("span");
-            childOrder.className = "cghj-heading-order";
-            childOrder.textContent = `${idx + 1}.${childIdx + 1}`;
-
-            childBtn.append(childText, childOrder);
+            childBtn.appendChild(childText);
             childList.appendChild(childBtn);
           });
 
