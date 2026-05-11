@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ChatGPT History Jump",
   "short_name": "History Jump",
-  "version": "3.2.13",
+  "version": "3.2.14",
   "description": "Add a searchable history panel to ChatGPT conversations for quick navigation.",
   "icons": {
     "16": "icon_16.png",
@@ -25,12 +25,10 @@
       ],
       "js": [
         "api.js",
-        "content.js",
-        "pink-theme.js"
+        "content.js"
       ],
       "css": [
-        "styles.css",
-        "pink-theme.css"
+        "styles.css"
       ],
       "run_at": "document_idle"
     }
