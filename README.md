@@ -134,10 +134,12 @@ When changing behavior or UI, also update the README files and bump the extensio
 
 ## Version
 
-Current version: `v3.2.4`
+Current version: `v3.2.6`
 
 ### Changelog
 
+- **3.2.6** — Remove "Sticky expanded" feature, simplify settings panel
+- **3.2.5** — Fix card layout overflow when width is set to narrow; expand buttons no longer get pushed out
 - **3.2.4** — Fold pink theme behavior and styles into the main extension files
 - **3.2.3** — Add a separate ChatGPT-adaptive dark theme while preserving the original dark theme
 - **3.2.2** — Simplify API reply heading parsing to raw Markdown headings only

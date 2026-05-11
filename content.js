@@ -22,7 +22,6 @@
     width: "standard",
     density: "comfortable",
     theme: "system",
-    stickyExpanded: true,
   };
 
   let questionItems = [];
@@ -51,7 +50,6 @@
     if (!["narrow", "standard", "wide"].includes(next.width)) next.width = DEFAULT_SETTINGS.width;
     if (!["comfortable", "compact"].includes(next.density)) next.density = DEFAULT_SETTINGS.density;
     if (!["system", "light", "dark", "chatgpt", "girl-pink"].includes(next.theme)) next.theme = DEFAULT_SETTINGS.theme;
-    if (typeof next.stickyExpanded !== "boolean") next.stickyExpanded = DEFAULT_SETTINGS.stickyExpanded;
     return next;
   }
 
@@ -278,10 +276,6 @@
               <option value="chatgpt">\u9002\u5e94GPT</option>
               <option value="girl-pink">\u5c11\u5973\u7c89</option>
             </select>
-          </label>
-          <label class="cghj-setting-row">
-            <span>\u5c55\u5f00\u9501\u5b9a</span>
-            <input type="checkbox" data-cghj-setting="stickyExpanded" />
           </label>
           <div class="cghj-author">
             <div class="cghj-author-line">\u539f\u521b\u4f5c\u8005\uff1a<span>\u65f6\u6155</span></div>
@@ -1864,7 +1858,7 @@
       const isReplyExpanded = expandedReplyHeadingIds.has(item.id);
 
       const card = document.createElement("div");
-      card.className = `cghj-item${item.id === activeQuestionId ? " active" : ""}${item.isLoaded === false ? " unloaded" : ""}${locatingQuestionId === item.id ? " locating" : ""}${isReplyExpanded && userSettings.stickyExpanded ? " reply-expanded" : ""}`;
+      card.className = `cghj-item${item.id === activeQuestionId ? " active" : ""}${item.isLoaded === false ? " unloaded" : ""}${locatingQuestionId === item.id ? " locating" : ""}`;
       card.dataset.questionId = item.id;
 
       const row = document.createElement("div");
@@ -1940,45 +1934,6 @@
     });
 
     list.appendChild(frag);
-    updateStickyOffsets(list);
-  }
-
-  function updateStickyOffsets(list) {
-    if (!userSettings.stickyExpanded) return;
-    const expandedItems = list.querySelectorAll(".cghj-item.reply-expanded");
-    expandedItems.forEach((item, index) => {
-      if (index === expandedItems.length - 1) {
-        item.classList.add("reply-sticky");
-        item.style.top = "0";
-      } else {
-        item.classList.remove("reply-sticky");
-        item.style.top = "";
-      }
-    });
-    bindHeadingPanelWheelEvents(list);
-  }
-
-  function bindHeadingPanelWheelEvents(list) {
-    list.querySelectorAll(".cghj-item.reply-sticky .cghj-heading-panel").forEach((panel) => {
-      if (panel.dataset.wheelBound) return;
-      panel.dataset.wheelBound = "true";
-      let extraTop = 0;
-      panel.addEventListener("wheel", (event) => {
-        const item = panel.closest(".cghj-item");
-        if (!item) return;
-        const isAtBottom = panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 1;
-        const isAtTop = panel.scrollTop <= 0;
-        if (event.deltaY > 0 && isAtBottom) {
-          event.preventDefault();
-          extraTop = Math.max(extraTop - event.deltaY, -item.offsetHeight);
-          item.style.top = `${extraTop}px`;
-        } else if (event.deltaY < 0 && extraTop < 0 && isAtTop) {
-          event.preventDefault();
-          extraTop = Math.min(extraTop - event.deltaY, 0);
-          item.style.top = `${extraTop}px`;
-        }
-      }, { passive: false });
-    });
   }
 
   function rebuildIntersectionObserver() {
