@@ -17,6 +17,8 @@
   const LOCATE_MAX_STEPS = 350;
   const HEADING_WARMUP_LIMIT = 12;
   const HEADING_WARMUP_DELAY = 160;
+  const API_LOAD_RETRY_DELAYS = [0, 500, 1500, 3500];
+  const URL_POLL_INTERVAL = 800;
   const DEFAULT_SETTINGS = {
     side: "right",
     width: "standard",
@@ -34,10 +36,18 @@
   let activeConversationKey = getConversationKey();
   let conversationSwitchReadyAt = 0;
   let urlWatcherInstalled = false;
+  let urlPollTimer = null;
   let userSettings = { ...DEFAULT_SETTINGS };
   let nextQuestionIndex = 1;
   let locatingQuestionId = null;
   let headingWarmupTimer = null;
+  let instantReaderQuestionId = null;
+  let pendingInstantHeadingText = "";
+  let locateRunId = 0;
+  let apiLoadGeneration = 0;
+  let apiLoadPromise = null;
+  let apiLoadTargetKey = "";
+  let apiRetryTimers = [];
   const expandedQuestionIds = new Set();
   const expandedReplyHeadingIds = new Set();
   const expandedChildHeadingIds = new Set();
@@ -94,6 +104,8 @@
   }
 
   function resetConversationState(nextKey = getConversationKey(), deferScan = false) {
+    apiLoadGeneration += 1;
+    clearApiRetryTimers();
     activeConversationKey = nextKey;
     lastKnownHref = location.href;
     conversationSwitchReadyAt = deferScan ? Date.now() + 900 : 0;
@@ -102,6 +114,10 @@
     activeQuestionId = null;
     questionItems = [];
     nextQuestionIndex = 1;
+    locatingQuestionId = null;
+    instantReaderQuestionId = null;
+    pendingInstantHeadingText = "";
+    locateRunId += 1;
     expandedQuestionIds.clear();
     expandedReplyHeadingIds.clear();
     expandedChildHeadingIds.clear();
@@ -111,10 +127,29 @@
     renderList(true);
   }
 
+  function beginConversationSwitch(reason = "unknown", nextKey = getConversationKey()) {
+    if (nextKey === activeConversationKey) {
+      lastKnownHref = location.href;
+      return false;
+    }
+
+    console.log(`[CGHJ] conversation switch (${reason}): ${activeConversationKey} -> ${nextKey}`);
+    resetConversationState(nextKey, true);
+    scheduleConversationApiLoads(nextKey, reason);
+
+    setTimeout(() => {
+      if (nextKey === activeConversationKey && nextKey === getConversationKey()) {
+        refreshAll();
+      }
+    }, 1000);
+
+    return true;
+  }
+
   function ensureConversationState() {
     const key = getConversationKey();
     if (key === activeConversationKey) return true;
-    resetConversationState(key, true);
+    beginConversationSwitch("state-check", key);
     return false;
   }
 
@@ -322,6 +357,7 @@
         icon.classList.add("spinning");
       }
       refreshAll();
+      scheduleConversationApiLoads(activeConversationKey, "manual-refresh");
     });
 
     settingsBtn?.addEventListener("click", () => {
@@ -1325,6 +1361,10 @@
         previous.imageCount = imageCount;
         previous.hasImage = imageCount > 0;
         previous.hasReplyHeadings = previous.replyElement instanceof HTMLElement || previous.replyHeadings.length > 0;
+        previous.mirrorQuestionText = previous.mirrorQuestionText || text;
+        previous.mirrorAssistantMessages = previous.mirrorAssistantMessages || [];
+        previous.mirrorReplyText = previous.mirrorReplyText || "";
+        previous.mirrorHeadings = previous.mirrorHeadings || [];
         batchKeys.push(previous.cacheKey);
         assignQuestionAnchor(userEl, previous.index - 1, previous.id);
         return;
@@ -1356,6 +1396,10 @@
         hasImage: imageCount > 0,
         isLong,
         isLoaded: true,
+        mirrorQuestionText: previous?.mirrorQuestionText || text,
+        mirrorAssistantMessages: previous?.mirrorAssistantMessages || [],
+        mirrorReplyText: previous?.mirrorReplyText || "",
+        mirrorHeadings: previous?.mirrorHeadings || [],
       });
     });
 
@@ -1521,11 +1565,47 @@
     return !!(item?.element instanceof HTMLElement && item.element.isConnected);
   }
 
-  async function tryLocateQuestionInDirection(item, scroller, direction, scanKey) {
+  function clampNumber(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+  }
+
+  function getApiScrollRatio(item) {
+    if (typeof item?.apiScrollRatio === "number" && Number.isFinite(item.apiScrollRatio)) {
+      return clampNumber(item.apiScrollRatio, 0, 1);
+    }
+
+    if (typeof item?.apiIndex === "number" && item.apiTotal > 0) {
+      return clampNumber(item.apiIndex / item.apiTotal, 0, 1);
+    }
+
+    return null;
+  }
+
+  function getLocateDirections(item) {
+    const targetIndex = typeof item?.apiIndex === "number" ? item.apiIndex : item.index - 1;
+    const loadedApiIndexes = questionItems
+      .filter((candidate) => isItemLoaded(candidate) && typeof candidate.apiIndex === "number")
+      .map((candidate) => candidate.apiIndex);
+
+    if (loadedApiIndexes.length) {
+      const minLoaded = Math.min(...loadedApiIndexes);
+      const maxLoaded = Math.max(...loadedApiIndexes);
+      if (targetIndex < minLoaded) return [-1, 1];
+      if (targetIndex > maxLoaded) return [1, -1];
+      return targetIndex >= (minLoaded + maxLoaded) / 2 ? [1, -1] : [-1, 1];
+    }
+
+    const totalCount = questionItems.length;
+    const isLowerHalf = item.index <= Math.ceil(totalCount / 2);
+    return isLowerHalf ? [-1, 1] : [1, -1];
+  }
+
+  async function tryLocateQuestionInDirection(item, scroller, direction, scanKey, runId) {
     let stableSteps = 0;
     let previousTop = -1;
 
     for (let step = 0; step < LOCATE_MAX_STEPS; step += 1) {
+      if (runId !== locateRunId) return null;
       if (scanKey !== getConversationKey()) return null;
 
       runRefreshAll();
@@ -1543,6 +1623,7 @@
         : Math.min(maxTop, currentTop + getScrollStep(scroller));
       setScrollTop(scroller, nextTop);
       await sleep(LOCATE_SCAN_DELAY);
+      if (runId !== locateRunId) return null;
 
       const afterTop = getScrollTop(scroller);
       stableSteps = Math.abs(afterTop - previousTop) < 2 ? stableSteps + 1 : 0;
@@ -1554,9 +1635,10 @@
   }
 
   async function locateAndJumpToQuestion(item) {
-    if (!item?.cacheKey || locatingQuestionId) return;
+    if (!item?.cacheKey) return;
     if (!ensureConversationState()) return;
 
+    const runId = ++locateRunId;
     locatingQuestionId = item.id;
     activeQuestionId = item.id;
     renderList(true);
@@ -1566,17 +1648,16 @@
     const scanKey = activeConversationKey;
 
     try {
-      // If we have API positional data, jump directly to proportional position
-      if (typeof item.apiIndex === "number" && item.apiTotal > 0) {
+      const apiScrollRatio = getApiScrollRatio(item);
+      if (apiScrollRatio !== null) {
         const maxTop = getMaxScrollTop(scroller);
-        const ratio = item.apiIndex / item.apiTotal;
-        const targetTop = Math.floor(ratio * maxTop);
-        console.log(`[CGHJ] proportional scroll: apiIndex=${item.apiIndex}/${item.apiTotal} ratio=${ratio.toFixed(2)} target=${targetTop}/${maxTop}`);
+        const targetTop = Math.floor(apiScrollRatio * maxTop);
+        console.log(`[CGHJ] API weighted scroll: apiIndex=${item.apiIndex}/${item.apiTotal} ratio=${apiScrollRatio.toFixed(3)} target=${targetTop}/${maxTop}`);
         setScrollTop(scroller, Math.min(targetTop, maxTop));
 
-        // Wait for virtual scroller to render, polling up to 3s
         for (let i = 0; i < 10; i++) {
           await sleep(300);
+          if (runId !== locateRunId) return null;
           if (scanKey !== getConversationKey()) return null;
           runRefreshAll();
           const latest = getItemByCacheKey(item.cacheKey);
@@ -1591,11 +1672,17 @@
           }
         }
 
-        // If still not found, try nudging scroll slightly (virtual scroller may need position change)
-        const nudgeOffsets = [-200, 200, -500, 500];
+        const scrollStep = getScrollStep(scroller);
+        const nudgeOffsets = [
+          -Math.floor(scrollStep * 0.35),
+          Math.floor(scrollStep * 0.35),
+          -scrollStep,
+          scrollStep,
+        ];
         for (const offset of nudgeOffsets) {
           setScrollTop(scroller, Math.min(Math.max(0, targetTop + offset), maxTop));
           await sleep(400);
+          if (runId !== locateRunId) return null;
           if (scanKey !== getConversationKey()) return null;
           runRefreshAll();
           const latest = getItemByCacheKey(item.cacheKey);
@@ -1607,18 +1694,13 @@
           }
         }
 
-        // Restore to target position
         setScrollTop(scroller, Math.min(targetTop, maxTop));
-        console.log("[CGHJ] proportional scroll + nudges failed, falling back to step search");
+        console.log("[CGHJ] API weighted scroll + nudges failed, falling back to directed search");
       }
 
-      // Fallback: step-by-step search from current position
-      const totalCount = questionItems.length;
-      const isLowerHalf = item.index <= Math.ceil(totalCount / 2);
-      const firstDir = isLowerHalf ? -1 : 1;
-      const secondDir = -firstDir;
-      const foundFirst = await tryLocateQuestionInDirection(item, scroller, firstDir, scanKey);
-      const found = foundFirst || await tryLocateQuestionInDirection(item, scroller, secondDir, scanKey);
+      const [firstDir, secondDir] = getLocateDirections(item);
+      const foundFirst = await tryLocateQuestionInDirection(item, scroller, firstDir, scanKey, runId);
+      const found = foundFirst || await tryLocateQuestionInDirection(item, scroller, secondDir, scanKey, runId);
 
       if (found && isItemLoaded(found)) {
         activeQuestionId = found.id;
@@ -1628,8 +1710,10 @@
 
       setScrollTop(scroller, Math.min(originalTop, getMaxScrollTop(scroller)));
     } finally {
-      locatingQuestionId = null;
-      runRefreshAll();
+      if (runId === locateRunId) {
+        locatingQuestionId = null;
+        runRefreshAll();
+      }
     }
   }
 
@@ -1643,19 +1727,64 @@
     });
   }
 
-  function jumpToQuestion(item) {
+  function syncOriginalPage(item) {
     if (!(item?.element instanceof HTMLElement) || !item.element.isConnected) {
-      activeQuestionId = item?.id || activeQuestionId;
-      updateActiveListState();
-      renderList(true);
-      locateAndJumpToQuestion(item);
+      void locateAndJumpToQuestion(item);
       return;
     }
+
+    const runId = ++locateRunId;
     activeQuestionId = item.id;
     locatingQuestionId = item.id;
     updateActiveListState();
+    renderList(true);
     jumpToElement(item.element);
-    setTimeout(() => { locatingQuestionId = null; }, 600);
+    setTimeout(() => {
+      if (runId !== locateRunId) return;
+      locatingQuestionId = null;
+      renderList(true);
+    }, 600);
+  }
+
+  function getQuestionCard(questionId) {
+    const root = document.getElementById(EXT_ID);
+    if (!root || !questionId) return null;
+    return root.querySelector(`.cghj-item[data-question-id="${questionId}"]`);
+  }
+
+  function scrollInstantReaderIntoView(questionId, headingText = "") {
+    const card = getQuestionCard(questionId);
+    if (!(card instanceof HTMLElement)) return;
+
+    let target = card.querySelector(".cghj-instant-reader");
+    if (headingText) {
+      const normalizedHeading = normalizeText(headingText);
+      const headingTarget = [...card.querySelectorAll(".cghj-reader-heading")]
+        .find((el) => normalizeText(el.getAttribute("data-heading-text") || el.textContent || "") === normalizedHeading);
+      if (headingTarget instanceof HTMLElement) target = headingTarget;
+    }
+
+    if (target instanceof HTMLElement) {
+      target.scrollIntoView({ behavior: "auto", block: "nearest", inline: "nearest" });
+    } else {
+      card.scrollIntoView({ behavior: "auto", block: "nearest", inline: "nearest" });
+    }
+  }
+
+  function openInstantReader(item, headingText = "") {
+    if (!item) return;
+    activeQuestionId = item.id;
+    instantReaderQuestionId = item.id;
+    pendingInstantHeadingText = headingText || "";
+    renderList(true);
+    requestAnimationFrame(() => {
+      scrollInstantReaderIntoView(item.id, headingText);
+    });
+    syncOriginalPage(item);
+  }
+
+  function jumpToQuestion(item) {
+    openInstantReader(item);
   }
 
   function resolveHeadingElement(item, heading) {
@@ -1674,12 +1803,22 @@
 
   function jumpToHeading(item, heading) {
     const headingElement = resolveHeadingElement(item, heading);
+    if (heading?.source === "markdown") {
+      openInstantReader(item, heading.text);
+      if (!headingElement) return;
+    }
+
     if (headingElement) {
       activeQuestionId = item.id;
       locatingQuestionId = item.id;
       updateActiveListState();
       jumpToElement(headingElement);
       setTimeout(() => { locatingQuestionId = null; }, 600);
+      return;
+    }
+
+    if (item?.mirrorReplyText && heading?.text) {
+      openInstantReader(item, heading.text);
       return;
     }
 
@@ -1878,6 +2017,100 @@
     return panel;
   }
 
+  function createReaderSection(title, text) {
+    const section = document.createElement("div");
+    section.className = "cghj-reader-section";
+
+    const label = document.createElement("div");
+    label.className = "cghj-reader-label";
+    label.textContent = title;
+
+    const body = document.createElement("div");
+    body.className = "cghj-reader-text";
+    body.textContent = text || "\u6682\u65e0\u5185\u5bb9";
+
+    section.append(label, body);
+    return section;
+  }
+
+  function createReaderReplySection(item) {
+    const section = document.createElement("div");
+    section.className = "cghj-reader-section";
+
+    const label = document.createElement("div");
+    label.className = "cghj-reader-label";
+    label.textContent = "\u56de\u590d";
+
+    const body = document.createElement("div");
+    body.className = "cghj-reader-text cghj-reader-reply";
+
+    const replyText = item.mirrorReplyText || "";
+    if (!replyText) {
+      body.textContent = "\u6682\u65e0 API \u56de\u590d\u5185\u5bb9";
+      section.append(label, body);
+      return section;
+    }
+
+    String(replyText).split(/\n/).forEach((line) => {
+      const heading = parseMarkdownHeadingLine(line);
+      const lineEl = document.createElement("div");
+      if (heading) {
+        lineEl.className = `cghj-reader-line cghj-reader-heading cghj-reader-heading-${heading.markdownLevel}`;
+        lineEl.setAttribute("data-heading-text", heading.text);
+        lineEl.setAttribute("tabindex", "0");
+        lineEl.setAttribute("role", "button");
+        lineEl.setAttribute("title", "\u5728\u539f\u9875\u9762\u540c\u6b65\u5b9a\u4f4d\u8be5\u6807\u9898");
+        lineEl.textContent = heading.text;
+        lineEl.addEventListener("click", (event) => {
+          event.stopPropagation();
+          jumpToHeading(item, heading);
+        });
+        lineEl.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          jumpToHeading(item, heading);
+        });
+      } else {
+        lineEl.className = "cghj-reader-line";
+        lineEl.textContent = line || "\u00a0";
+      }
+      body.appendChild(lineEl);
+    });
+
+    section.append(label, body);
+    return section;
+  }
+
+  function createInstantReader(item) {
+    const reader = document.createElement("div");
+    reader.className = "cghj-instant-reader";
+
+    const toolbar = document.createElement("div");
+    toolbar.className = "cghj-reader-toolbar";
+
+    const status = document.createElement("span");
+    status.className = "cghj-reader-status";
+    status.textContent = locatingQuestionId === item.id
+      ? "\u539f\u9875\u540c\u6b65\u4e2d"
+      : (item.isLoaded === false ? "\u539f\u6587\u672a\u52a0\u8f7d" : "\u539f\u6587\u5df2\u52a0\u8f7d");
+
+    const locateBtn = document.createElement("button");
+    locateBtn.type = "button";
+    locateBtn.className = "cghj-reader-locate";
+    locateBtn.textContent = "\u5b9a\u4f4d\u539f\u9875\u9762";
+    locateBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      syncOriginalPage(item);
+    });
+
+    toolbar.append(status, locateBtn);
+    reader.appendChild(toolbar);
+    reader.appendChild(createReaderSection("\u95ee\u9898", item.mirrorQuestionText || item.text || ""));
+    reader.appendChild(createReaderReplySection(item));
+
+    return reader;
+  }
+
   function renderList(force = false) {
     const root = ensureRoot();
     const list = root.querySelector(`#${LIST_ID}`);
@@ -1891,10 +2124,17 @@
     const renderSignature = [
       keyword,
       activeQuestionId || "",
+      instantReaderQuestionId || "",
+      pendingInstantHeadingText || "",
       expandedQuestionState,
       expandedReplyState,
       expandedChildState,
-      ...items.map((item) => `${item.id}:${item.replyHeadings.length}`),
+      ...items.map((item) => [
+        item.id,
+        item.replyHeadings.length,
+        item.mirrorReplyText?.length || 0,
+        locatingQuestionId === item.id ? 1 : 0,
+      ].join(":")),
     ].join("::");
 
     if (!force && renderSignature === lastRenderSignature) return;
@@ -1925,7 +2165,7 @@
       if (item.isLoaded === false) {
         mainBtn.setAttribute(
           "title",
-          "\u8be5\u95ee\u9898\u6682\u672a\u5728\u5f53\u524d\u9875\u9762 DOM \u4e2d\u52a0\u8f7d\uff0c\u70b9\u51fb\u540e\u4f1a\u5c1d\u8bd5\u6eda\u52a8\u627e\u56de\u5e76\u8df3\u8f6c\u3002"
+          "\u8be5\u95ee\u9898\u6682\u672a\u5728\u5f53\u524d\u9875\u9762 DOM \u4e2d\u52a0\u8f7d\uff0c\u70b9\u51fb\u540e\u4f1a\u7acb\u5373\u6253\u5f00\u53f3\u4fa7\u955c\u50cf\u9605\u8bfb\u5668\uff0c\u5e76\u540e\u53f0\u540c\u6b65\u5b9a\u4f4d\u539f\u9875\u9762\u3002"
         );
       }
       mainBtn.addEventListener("pointerdown", (event) => {
@@ -1964,7 +2204,7 @@
       if (item.isLoaded === false) {
         const unloadedEl = document.createElement("span");
         unloadedEl.className = "cghj-state-badge";
-        unloadedEl.textContent = locatingQuestionId === item.id ? "\u5b9a\u4f4d\u4e2d" : "\u672a\u52a0\u8f7d";
+        unloadedEl.textContent = locatingQuestionId === item.id ? "\u540c\u6b65\u4e2d" : "\u539f\u6587\u672a\u52a0\u8f7d";
         contentEl.appendChild(unloadedEl);
       }
 
@@ -1983,6 +2223,10 @@
 
       if (isReplyExpanded && item.hasReplyHeadings) {
         card.appendChild(createHeadingPreview(item));
+      }
+
+      if (instantReaderQuestionId === item.id) {
+        card.appendChild(createInstantReader(item));
       }
 
       frag.appendChild(card);
@@ -2035,7 +2279,7 @@
 
   function runRefreshAll() {
     ensureRoot();
-    ensureConversationState();
+    if (!ensureConversationState()) return;
     const changed = scanQuestions();
     renderList(changed);
     rebuildIntersectionObserver();
@@ -2098,17 +2342,59 @@
     });
   }
 
+  function clearApiRetryTimers() {
+    apiRetryTimers.forEach((timer) => clearTimeout(timer));
+    apiRetryTimers = [];
+  }
+
+  function scheduleConversationApiLoads(conversationKey = activeConversationKey, reason = "manual") {
+    clearApiRetryTimers();
+    const generation = apiLoadGeneration;
+
+    API_LOAD_RETRY_DELAYS.forEach((delay, attemptIndex) => {
+      const timer = setTimeout(async () => {
+        if (
+          generation !== apiLoadGeneration ||
+          conversationKey !== activeConversationKey ||
+          conversationKey !== getConversationKey()
+        ) {
+          return;
+        }
+
+        const loaded = await loadConversationFromApi({
+          expectedKey: conversationKey,
+          generation,
+        });
+
+        if (
+          generation !== apiLoadGeneration ||
+          conversationKey !== activeConversationKey ||
+          conversationKey !== getConversationKey()
+        ) {
+          return;
+        }
+
+        if (loaded) {
+          clearApiRetryTimers();
+        } else if (attemptIndex === API_LOAD_RETRY_DELAYS.length - 1) {
+          console.warn(`[CGHJ] API load did not complete after switch (${reason}); keeping DOM fallback`);
+        }
+      }, delay);
+
+      apiRetryTimers.push(timer);
+    });
+  }
+
   function handleUrlChange() {
     const nextKey = getConversationKey();
     if (location.href === lastKnownHref && nextKey === activeConversationKey) return;
 
-    resetConversationState(nextKey, true);
-    setTimeout(() => {
-      refreshAll();
-    }, 1800);
-    setTimeout(async () => {
-      await loadConversationFromApi();
-    }, 3500);
+    if (nextKey !== activeConversationKey) {
+      beginConversationSwitch("url", nextKey);
+      return;
+    }
+
+    lastKnownHref = location.href;
   }
 
   function installUrlWatcher() {
@@ -2132,6 +2418,8 @@
 
     window.addEventListener("popstate", handleUrlChange);
     window.addEventListener("hashchange", handleUrlChange);
+
+    urlPollTimer = setInterval(handleUrlChange, URL_POLL_INTERVAL);
   }
 
   function getAssistantMessagesUntilNextUser(messages, startIndex) {
@@ -2154,98 +2442,190 @@
     return headingSets[headingSets.length - 1] || [];
   }
 
-  async function loadConversationFromApi() {
-    if (!window.__cghjApi) return false;
-    if (!ensureConversationState()) return false;
+  function getAssistantMessageTexts(messages) {
+    return messages
+      .map((msg) => String(msg?.text || "").trim())
+      .filter(Boolean);
+  }
 
-    try {
-      const result = await window.__cghjApi.loadFullConversation();
-      if (!result?.messages?.length) return false;
+  function estimateApiTurnWeight(questionText, assistantMessages) {
+    const replyTextLength = assistantMessages.reduce((sum, msg) => sum + (msg.text || "").length, 0);
+    return 600 + Math.min(20000, (questionText || "").length + replyTextLength);
+  }
 
-      const conversationKey = activeConversationKey || getConversationKey();
+  function buildApiQuestionRecords(messages) {
+    const records = [];
+    const apiUserTotal = messages.filter((msg) => msg.role === "user").length;
+    let filteredOut = 0;
 
-      // Preserve DOM references by matching repeated text in occurrence order.
-      const domItemsByText = buildQuestionTextQueues(
-        getCachedQuestionItems().filter((item) => item.element instanceof HTMLElement && item.element.isConnected),
-        conversationKey
-      );
+    messages.forEach((msg, msgIndex) => {
+      if (msg.role !== "user") return;
 
-      // Clear and rebuild from API
-      seenQuestionMap.clear();
-      nextQuestionIndex = 1;
-
-      const batchKeys = [];
-      const apiUserMessages = result.messages.filter((m) => m.role === "user");
-      const apiUserTotal = apiUserMessages.length;
-      let filteredOut = 0;
-
-      result.messages.forEach((msg, msgIndex) => {
-        if (msg.role !== "user") return;
-
-        const text = normalizeQuestionText(msg.text);
-        if (!shouldKeepAsQuestion(text, 0)) {
-          filteredOut++;
-          console.log(`[CGHJ] filtered out user msg: "${text.slice(0, 60)}..." len=${text.length}`);
-          return;
-        }
-
-        const textKey = normalizeText(text).toLowerCase();
-        const domItem = shiftQuestionTextQueue(domItemsByText, textKey);
-        const cacheKey = domItem?.cacheKey || `${conversationKey}::api:${msg.id}`;
-        batchKeys.push(cacheKey);
-
-        const index = nextQuestionIndex;
-        nextQuestionIndex += 1;
-        const id = `cghj-q-${index}`;
-        const assistantMessages = getAssistantMessagesUntilNextUser(result.messages, msgIndex);
-        const apiReplyHeadings = getBestApiReplyHeadings(assistantMessages, id);
-        const domReplyHeadings = domItem?.replyHeadings || [];
-        const shouldUseApiHeadings = apiReplyHeadings.length > 0;
-        const replyHeadings = shouldUseApiHeadings ? apiReplyHeadings : domReplyHeadings;
-
-        seenQuestionMap.set(cacheKey, {
-          id,
-          cacheKey,
-          conversationKey,
-          text,
-          short: shorten(text, PREVIEW_TEXT_LIMIT),
-          element: domItem?.element || null,
-          replyElement: domItem?.replyElement || null,
-          replyHeadings,
-          hasReplyHeadings: replyHeadings.length > 0 || (domItem ? domItem.hasReplyHeadings : assistantMessages.length > 0),
-          headingsLoaded: replyHeadings.length > 0 || (domItem ? domItem.headingsLoaded : false),
-          index,
-          imageCount: domItem?.imageCount || 0,
-          hasImage: domItem?.hasImage || false,
-          isLong: text.length > LONG_TEXT_THRESHOLD,
-          isLoaded: !!domItem,
-          source: domItem ? "merged" : "api",
-          apiIndex: index - 1,
-          apiTotal: apiUserTotal,
-        });
-      });
-
-      console.log(`[CGHJ] API load complete: ${apiUserTotal} user messages from API, ${filteredOut} filtered, ${seenQuestionMap.size} in map`);
-
-      renumberQuestionItems();
-
-      const results = getCachedQuestionItems();
-      const nextSignature = buildQuestionSignature(results);
-      const changed = nextSignature !== lastQuestionSignature;
-      questionItems = results;
-      lastQuestionSignature = nextSignature;
-
-      if (!questionItems.some((item) => item.id === activeQuestionId)) {
-        activeQuestionId = questionItems[0]?.id || null;
+      const text = normalizeQuestionText(msg.text);
+      if (!shouldKeepAsQuestion(text, 0)) {
+        filteredOut++;
+        console.log(`[CGHJ] filtered out user msg: "${text.slice(0, 60)}..." len=${text.length}`);
+        return;
       }
 
-      updateCount();
-      renderList(true);
-      rebuildIntersectionObserver();
-      return true;
-    } catch (err) {
-      console.warn("[CGHJ] loadConversationFromApi failed:", err);
+      const assistantMessages = getAssistantMessagesUntilNextUser(messages, msgIndex);
+      records.push({
+        msg,
+        msgIndex,
+        text,
+        assistantMessages,
+        apiWeight: estimateApiTurnWeight(text, assistantMessages),
+      });
+    });
+
+    const totalWeight = records.reduce((sum, record) => sum + record.apiWeight, 0);
+    let weightBefore = 0;
+
+    records.forEach((record, idx) => {
+      record.apiIndex = idx;
+      record.apiTotal = records.length;
+      record.apiWeightBefore = weightBefore;
+      record.apiScrollRatio = totalWeight > 0 ? weightBefore / totalWeight : 0;
+      weightBefore += record.apiWeight;
+    });
+
+    return { records, apiUserTotal, filteredOut };
+  }
+
+  async function fetchConversationFromApi(expectedKey) {
+    if (!window.__cghjApi) return null;
+    if (expectedKey !== getConversationKey()) return null;
+    return await window.__cghjApi.loadFullConversation();
+  }
+
+  function applyConversationApiResult(result, conversationKey, generation) {
+    if (
+      generation !== apiLoadGeneration ||
+      conversationKey !== activeConversationKey ||
+      conversationKey !== getConversationKey()
+    ) {
+      console.log("[CGHJ] ignore stale API result");
       return false;
+    }
+
+    const { records, apiUserTotal, filteredOut } = buildApiQuestionRecords(result.messages);
+
+    // Preserve DOM references by matching repeated text in occurrence order.
+    const domItemsByText = buildQuestionTextQueues(
+      getCachedQuestionItems().filter((item) => item.element instanceof HTMLElement && item.element.isConnected),
+      conversationKey
+    );
+
+    seenQuestionMap.clear();
+    nextQuestionIndex = 1;
+
+    records.forEach((record) => {
+      const textKey = normalizeText(record.text).toLowerCase();
+      const domItem = shiftQuestionTextQueue(domItemsByText, textKey);
+      const cacheKey = domItem?.cacheKey || `${conversationKey}::api:${record.msg.id}`;
+
+      const index = nextQuestionIndex;
+      nextQuestionIndex += 1;
+      const id = `cghj-q-${index}`;
+      const apiReplyHeadings = getBestApiReplyHeadings(record.assistantMessages, id);
+      const domReplyHeadings = domItem?.replyHeadings || [];
+      const replyHeadings = apiReplyHeadings.length > 0 ? apiReplyHeadings : domReplyHeadings;
+      const mirrorAssistantMessages = getAssistantMessageTexts(record.assistantMessages);
+      const mirrorReplyText = mirrorAssistantMessages[mirrorAssistantMessages.length - 1] || "";
+
+      seenQuestionMap.set(cacheKey, {
+        id,
+        cacheKey,
+        conversationKey,
+        text: record.text,
+        short: shorten(record.text, PREVIEW_TEXT_LIMIT),
+        element: domItem?.element || null,
+        replyElement: domItem?.replyElement || null,
+        replyHeadings,
+        hasReplyHeadings: replyHeadings.length > 0 || (domItem ? domItem.hasReplyHeadings : record.assistantMessages.length > 0),
+        headingsLoaded: replyHeadings.length > 0 || (domItem ? domItem.headingsLoaded : false),
+        index,
+        imageCount: domItem?.imageCount || 0,
+        hasImage: domItem?.hasImage || false,
+        isLong: record.text.length > LONG_TEXT_THRESHOLD,
+        isLoaded: !!domItem,
+        source: domItem ? "merged" : "api",
+        apiIndex: record.apiIndex,
+        apiTotal: record.apiTotal,
+        apiScrollRatio: record.apiScrollRatio,
+        mirrorQuestionText: record.text,
+        mirrorAssistantMessages,
+        mirrorReplyText,
+        mirrorHeadings: apiReplyHeadings,
+      });
+    });
+
+    console.log(`[CGHJ] API load complete: ${apiUserTotal} user messages from API, ${filteredOut} filtered, ${seenQuestionMap.size} in map`);
+
+    renumberQuestionItems();
+
+    const results = getCachedQuestionItems();
+    const nextSignature = buildQuestionSignature(results);
+    questionItems = results;
+    lastQuestionSignature = nextSignature;
+
+    if (!questionItems.some((item) => item.id === activeQuestionId)) {
+      activeQuestionId = questionItems[0]?.id || null;
+    }
+
+    updateCount();
+    renderList(true);
+    rebuildIntersectionObserver();
+    return records.length > 0;
+  }
+
+  async function loadConversationFromApi(options = {}) {
+    const expectedKey = options.expectedKey || activeConversationKey || getConversationKey();
+    const generation = Number.isFinite(options.generation)
+      ? options.generation
+      : apiLoadGeneration;
+
+    if (!window.__cghjApi) return false;
+    if (expectedKey !== activeConversationKey || expectedKey !== getConversationKey()) return false;
+
+    if (apiLoadPromise && apiLoadTargetKey === expectedKey) {
+      return apiLoadPromise;
+    }
+
+    const promise = (async () => {
+      try {
+        const result = await fetchConversationFromApi(expectedKey);
+        if (
+          generation !== apiLoadGeneration ||
+          expectedKey !== activeConversationKey ||
+          expectedKey !== getConversationKey()
+        ) {
+          console.log("[CGHJ] ignore stale API load");
+          return false;
+        }
+
+        if (!result?.messages?.length) {
+          console.warn("[CGHJ] API load returned no messages; keeping DOM fallback");
+          return false;
+        }
+
+        return applyConversationApiResult(result, expectedKey, generation);
+      } catch (err) {
+        console.warn("[CGHJ] loadConversationFromApi failed:", err);
+        return false;
+      }
+    })();
+
+    apiLoadPromise = promise;
+    apiLoadTargetKey = expectedKey;
+
+    try {
+      return await promise;
+    } finally {
+      if (apiLoadPromise === promise) {
+        apiLoadPromise = null;
+        apiLoadTargetKey = "";
+      }
     }
   }
 
@@ -2261,9 +2641,7 @@
       refreshAll();
       installPageObserver();
       installUrlWatcher();
-      setTimeout(async () => {
-        await loadConversationFromApi();
-      }, 2500);
+      scheduleConversationApiLoads(activeConversationKey, "initial");
     };
 
     tryInit();

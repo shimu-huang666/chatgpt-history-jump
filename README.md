@@ -18,8 +18,10 @@ For Chinese documentation, see [README_CN.md](./README_CN.md).
 - Remembers panel collapsed state per conversation
 - Lets you customize panel side, width, density, and theme locally, including ChatGPT-adaptive dark and pink themes
 - Parses reply headings lazily when opened so long conversations index faster
+- Loads the full active conversation from ChatGPT Backend API after page load and SPA conversation switches
 - Clears and guards cached questions/headings when switching conversations
-- Attempts to restore unloaded cached prompts by scrolling before jumping to them
+- Opens a right-side instant mirror reader from API data so unloaded prompts can be viewed immediately
+- Attempts to sync the original ChatGPT page in the background with API-weighted scroll positioning
 - Keeps numbered and visual top-level reply headings alongside semantic headings
 - Warms up reply heading parsing for a small loaded batch after scans
 - Watches page updates dynamically with DOM observers
@@ -69,7 +71,7 @@ After the extension is loaded:
 4. Click an item to jump to that message near the top of the viewport
 5. Expand reply headings to preview top-level sections, then expand any nested secondary headings when needed
 6. Use the gear button to adjust panel side, width, density, and theme
-7. Click an unloaded cached prompt to let the extension try to scroll it back into the DOM and jump to it
+7. Click any prompt to open its API-backed mirror reader immediately while the original page syncs in the background
 9. Collapse or expand the panel whenever needed
 
 ## How It Works
@@ -77,13 +79,15 @@ After the extension is loaded:
 The extension is implemented as a Manifest V3 content script:
 
 - `content.js` scans ChatGPT user message nodes and builds the question list
+- `api.js` actively fetches the current conversation from ChatGPT Backend API so long chats can be indexed without a page refresh
 - `styles.css` renders the floating side panel and interaction states
 - `chrome.storage.local` stores per-conversation collapsed state and local display settings
 - `MutationObserver` tracks conversation updates
 - `IntersectionObserver` keeps the active question in sync with scrolling
 - Reply headings are parsed lazily when a heading preview is opened, keeping normal scans lightweight
 - Conversation caches are keyed and reset by conversation path to avoid showing stale headings after navigation
-- Cached prompts that are not currently loaded can be located by targeted scrolling when clicked
+- Conversation switches use URL hooks, mutation checks, and a light URL poller to trigger full API reloads even when ChatGPT updates routes through SPA navigation
+- Cached prompts that are not currently loaded open instantly in the mirror reader; original-page scrolling remains a best-effort background sync
 - API reply heading extraction only trusts raw Markdown heading lines such as `##` and `###`; if a reply has no Markdown headings, the extension falls back to DOM-based heading detection
 - DOM reply heading extraction merges semantic headings with numbered/visual top-level headings instead of choosing only one source
 - After normal scans, up to 12 loaded replies are parsed in the background to restore quick heading previews without blocking long scans
@@ -134,10 +138,12 @@ When changing behavior or UI, also update the README files and bump the extensio
 
 ## Version
 
-Current version: `v3.2.14`
+Current version: `v3.2.16`
 
 ### Changelog
 
+- **3.2.16** — Add an API-backed right-side mirror reader for instant access to unloaded long-conversation turns
+- **3.2.15** — Reload full API indexes on SPA conversation switches and use API-weighted positioning for unloaded prompt jumps
 - **3.2.14** — Remove legacy pink theme files after folding the theme into the main extension files
 - **3.2.13** — Add a playful author tease button in the settings support area
 - **3.2.12** — Remove reply heading order numbers and keep only child heading expand controls
